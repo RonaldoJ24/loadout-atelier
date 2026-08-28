@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 test('happy path: inspect the seeded build and generate a recommendation', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('./');
 
   await expect(page.getByRole('heading', { name: 'Aegis Relay' })).toBeVisible();
   await expect(page.getByText('FIXTURE · OFFLINE')).toBeVisible();
@@ -14,7 +14,7 @@ test('happy path: inspect the seeded build and generate a recommendation', async
 });
 
 test('workspace has no automatically detectable accessibility violations', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('./');
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 });
@@ -23,7 +23,7 @@ test('mobile workspace stays within the viewport and ability controls expose foc
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  await page.goto('./');
 
   const dimensions = await page.evaluate(() => ({
     viewport: window.innerWidth,
@@ -37,7 +37,7 @@ test('mobile workspace stays within the viewport and ability controls expose foc
 });
 
 test('export action produces a fixture-only JSON download', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('./');
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: /Export build summary/i }).click();
   const download = await downloadPromise;
@@ -47,7 +47,7 @@ test('export action produces a fixture-only JSON download', async ({ page }) => 
 test('failure path: missing equipment is surfaced and local evaluation can replay it', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('./');
 
   await page.getByRole('combobox', { name: 'Weapon item' }).selectOption('');
   await expect(page.getByText('Build needs attention')).toBeVisible();
