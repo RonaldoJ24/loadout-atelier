@@ -31,7 +31,8 @@ The public demo is deliberately honest: its small item and ability dataset is sy
 - visible source mode, retrieval time, dataset version, citations, and tool traces;
 - local build saves, JSON export, and re-evaluation against a prior fixture patch;
 - replayable recommendation and failure scenarios with exact metric denominators;
-- optional public-profile and DeepSeek adapters behind a local Node service.
+- a transient local public-profile preview that can apply only identity-free class/level facts;
+- an optional DeepSeek explanation adapter behind the same local Node service.
 
 There is no chat surface, account system, cloud database, payment layer, or social feature.
 
@@ -48,14 +49,14 @@ npm run dev
 
 Open `http://localhost:4173`. The fixture workspace is complete without a backend.
 
-For the optional local service:
+For the optional local service, use a second terminal:
 
 ```bash
 cp .env.example .env.local
 npm run dev:server
 ```
 
-Set `DEEPSEEK_API_KEY` only in `.env.local` or the process environment. The key is read by `server/` and must never use a `VITE_*` name. Public Wynncraft reads do not require an account token in the MVP.
+Set `DATA_MODE=live` in the ignored `.env.local` to enable the loopback-only public-profile preview. Public Wynncraft reads do not require an account token. Set `DEEPSEEK_API_KEY` only when testing the optional explanation provider; the key is read by `server/` and must never use a `VITE_*` name.
 
 ## Five-minute demo
 
@@ -64,7 +65,8 @@ Set `DEEPSEEK_API_KEY` only in `.env.local` or the process environment. The key 
 3. Restore the sample build, move the goal mix toward raid support and survivability, set a budget, and generate a recommendation.
 4. Review changed slots, before/after stats, tradeoffs, deterministic status, source cards, and sanitized tool trace.
 5. Re-evaluate the saved build against the previous fixture to see a patch-added item and changed support stat.
-6. Open **Evaluations**, replay a valid case and a malformed-provider or stale-data case, then export the summary JSON.
+6. When running the local service in live mode, open **Public profile**, preview a public name, and apply only a selected character's class and level. Confirm that equipment remains manual and the name never enters the build or export.
+7. Open **Evaluations**, replay a valid case and a malformed-provider or stale-data case, then export the summary JSON.
 
 ## Architecture in one minute
 
@@ -75,7 +77,7 @@ React workspace ──► deterministic engine ──► valid recommendation / 
        └── optional local API┴── Wynncraft tools / DeepSeek explanation
 ```
 
-The hosted Vite application contains the UI, deterministic engine, synthetic fixtures, local saves, exports, and evaluation replay. The optional Express service owns live HTTP calls and provider secrets. It has timeouts, bounded in-memory caching for shared static data, uncached player routes, readable typed errors, restricted-origin defaults, and redacted traces.
+The hosted Vite application contains the UI, deterministic engine, synthetic fixtures, local saves, exports, and evaluation replay. The optional Express service owns live HTTP calls and provider secrets. It has timeouts, bounded in-memory caching for shared static data, uncached player routes, readable typed errors, restricted-origin defaults, and redacted traces. Profile input is accepted only on loopback, sent to the local service in a POST body, reduced to identity-free evidence, and erased when the panel closes.
 
 The full module and data-flow description is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Short decisions explain the [two-runtime design](docs/adrs/0001-local-first-two-runtime.md), [deterministic authority](docs/adrs/0002-deterministic-authority.md), [synthetic fixture](docs/adrs/0003-versioned-synthetic-fixture.md), and [product naming](docs/adrs/0004-product-name.md).
 
@@ -96,14 +98,17 @@ Provider JSON must pass a strict Zod schema, use only supplied source IDs, and s
 
 The official API currently documents v3 player, item, and ability routes, access rules, independent guest rate buckets, cache headers, and mutable availability. Loadout Atelier wraps only the minimum public routes it needs. A restricted, ambiguous, incomplete, or unavailable player response is not converted into a build.
 
-| Label      | Meaning in the product                                                 |
-| ---------- | ---------------------------------------------------------------------- |
-| Live       | Current local-session result from the official API.                    |
-| Cached     | Bounded in-memory result with the original retrieval/version metadata. |
-| Fixture    | Repository-shipped synthetic content for offline demonstration.        |
-| AI-derived | Optional text accepted after schema, citation, and engine checks.      |
+| Label      | Meaning in the product                                                   |
+| ---------- | ------------------------------------------------------------------------ |
+| Manual     | User-authored build facts, including equipment the API cannot establish. |
+| Live       | Current local-session result from the official API.                      |
+| Cached     | Bounded in-memory result with the original retrieval/version metadata.   |
+| Fixture    | Repository-shipped synthetic content for offline demonstration.          |
+| Inferred   | Deterministic transformation with its source fact identified.            |
+| Unknown    | Missing, restricted, malformed, or unverified data.                      |
+| AI-derived | Optional text accepted after schema, citation, and engine checks.        |
 
-No account or profile database exists. Browser saves are explicit localStorage entries. Public profile results are transient and personal identifiers are excluded from traces and exports. See [data sources](docs/DATA_SOURCES.md), [official API research](docs/API_RESEARCH.md), the [threat model](docs/THREAT_MODEL.md), and [release validation](docs/VALIDATION.md).
+No account or profile database exists. Browser saves are explicit localStorage entries. Public profile results are transient; the boundary discards the player selector, UUID keys, character identifiers, nicknames, and unexpected account fields before the browser receives a response. See [data sources](docs/DATA_SOURCES.md), [official API research](docs/API_RESEARCH.md), the [threat model](docs/THREAT_MODEL.md), and [release validation](docs/VALIDATION.md).
 
 ## Typed tools
 
@@ -133,7 +138,8 @@ The release's single live DeepSeek request reached the provider, but its respons
 
 - The shipped fixture is small and fictional; it does not measure live recommendation accuracy or cover the full game database.
 - Official endpoint shapes, access policy, balance data, and availability can change; the tool adapters intentionally fail closed.
-- The public Pages demo cannot perform live lookups or AI calls because it has no trusted backend.
+- The public Pages demo cannot perform live lookups or AI calls because it has no trusted backend; its profile form is visibly fixture-only and cannot submit.
+- Public character lookup can establish only fields exposed by the official route. Equipped items, exact rolls, powders, tomes, bank contents, currency, derived combat totals, and unused ability points remain manual or unknown.
 - The static-data cache is process memory, not a durable data platform; player and character routes bypass it.
 - The bounded live provider smoke verified fail-closed rejection, not a successful AI recommendation or provider reliability.
 - Provider-prose validation rejects numeric and contradictory recognized-stat claims, but qualitative language outside that vocabulary remains a heuristic boundary rather than a formal semantic proof.

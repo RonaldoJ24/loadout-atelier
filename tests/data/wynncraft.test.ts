@@ -10,7 +10,7 @@ const response = (status: number, payload: unknown, headers: Record<string, stri
 });
 
 describe('Wynncraft boundary client', () => {
-  it('uses one bounded cache and sends presence-only fullResult', async () => {
+  it('uses one bounded cache and sends presence-only fullResult for static items', async () => {
     const urls: string[] = [];
     const fetch = vi.fn(async (url: string) => {
       urls.push(url);
@@ -31,56 +31,266 @@ describe('Wynncraft boundary client', () => {
     expect(first.ok && first.trace.metadata?.version).toBe('v3.7.2');
   });
 
+  it('normalizes a trimmed username to an identity-free profile summary', async () => {
+    const rawIdentifier = 'synthetic-private-marker';
+    const urls: string[] = [];
+    const fetch = vi.fn(async (url: string) => {
+      urls.push(url);
+      return response(
+        200,
+        {
+          username: 'SyntheticPlayer',
+          online: true,
+          uuid: rawIdentifier,
+          characters: { [rawIdentifier]: { id: rawIdentifier } },
+          restrictions: { characterDataAccess: 'public' },
+          guild: { name: 'unreturned-account-field' },
+        },
+        { version: 'v3.7.2', 'x-ratelimit-limit': '50' },
+      );
+    });
+    const client = createWynncraftClient({ fetch: fetch as never });
+
+    const result = await client.getPublicProfile('  SyntheticPlayer  ');
+
+    expect(urls).toEqual(['https://api.wynncraft.com/v3/player/SyntheticPlayer']);
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        status: 'public',
+        online: true,
+        characterCount: 1,
+        characterData: 'available',
+      },
+    });
+    if (result.ok) {
+      expect(Object.keys(result.data).sort()).toEqual([
+        'characterCount',
+        'characterData',
+        'characters',
+        'online',
+        'status',
+      ]);
+      expect(result.trace.cache).toBe('bypass');
+      expect(result.trace.metadata?.version).toBe('v3.7.2');
+      expect(JSON.stringify(result)).not.toContain(rawIdentifier);
+      expect(JSON.stringify(result)).not.toContain('unreturned-account-field');
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes the UUID-keyed character list to class and level only', async () => {
+    const rawKey = 'synthetic-character-key';
+    const rawNickname = 'synthetic-nickname-marker';
+    const rawReskin = 'synthetic-reskin-marker';
+    const fetch = vi.fn(async (url: string) => {
+      expect(url).toBe('https://api.wynncraft.com/v3/player/SyntheticPlayer/characters');
+      return response(200, {
+        [rawKey]: {
+          class: 'Mage',
+          level: 106,
+          nickname: rawNickname,
+          reskin: rawReskin,
+          xp: 123456,
+          gamemode: ['synthetic-mode-marker'],
+          unexpected: 'synthetic-unexpected-marker',
+        },
+        'synthetic-character-key-two': {
+          classId: 'ARCHER',
+          level: 1,
+          nickname: rawNickname,
+        },
+      });
+    });
+    const client = createWynncraftClient({ fetch: fetch as never });
+
+    const result = await client.getPublicCharacters('  SyntheticPlayer  ');
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: [
+        { classId: 'mage', level: 106 },
+        { classId: 'archer', level: 1 },
+      ],
+    });
+    if (result.ok) {
+      expect(result.data).toEqual([
+        { classId: 'mage', level: 106 },
+        { classId: 'archer', level: 1 },
+      ]);
+      expect(result.trace.cache).toBe('bypass');
+      expect(JSON.stringify(result)).not.toContain(rawKey);
+      expect(JSON.stringify(result)).not.toContain(rawNickname);
+      expect(JSON.stringify(result)).not.toContain(rawReskin);
+      expect(JSON.stringify(result)).not.toContain('synthetic-mode-marker');
+      expect(JSON.stringify(result)).not.toContain('synthetic-unexpected-marker');
+      expect(Object.keys(result.data[0] ?? {})).toEqual(['classId', 'level']);
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a malformed character entry instead of guessing', async () => {
+    const rawMarker = 'synthetic-malformed-character-marker';
+    const fetch = vi.fn(async () =>
+      response(200, {
+        'synthetic-valid-key': { class: 'mage', level: 106 },
+        [rawMarker]: { class: 'unknown-class', level: '106', nickname: rawMarker },
+      }),
+    );
+    const client = createWynncraftClient({ fetch: fetch as never });
+
+    const result = await client.getPublicCharacters('SyntheticPlayer');
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('incomplete');
+    expect(result.trace.cache).toBe('bypass');
+    expect(JSON.stringify(result)).not.toContain(rawMarker);
+  });
+
+  it('normalizes character ordering independently of UUID-map insertion order', async () => {
+    const payloads = [
+      {
+        'synthetic-key-b': { type: 'ARCHER', level: 80 },
+        'synthetic-key-a': { type: 'MAGE', level: 100 },
+      },
+      {
+        'synthetic-key-a': { type: 'MAGE', level: 100 },
+        'synthetic-key-b': { type: 'ARCHER', level: 80 },
+      },
+    ];
+    const fetch = vi.fn(async () => response(200, payloads.shift() ?? {}));
+    const client = createWynncraftClient({ fetch: fetch as never });
+
+    const first = await client.getPublicCharacters('SyntheticPlayer');
+    const second = await client.getPublicCharacters('SyntheticPlayer');
+
+    expect(first.ok && first.data).toEqual([
+      { classId: 'mage', level: 100 },
+      { classId: 'archer', level: 80 },
+    ]);
+    expect(second.ok && second.data).toEqual(first.ok ? first.data : []);
+  });
+
+  it('does not cache character lists or make a request for an invalid name', async () => {
+    const fetch = vi.fn(async () => response(200, {}));
+    const client = createWynncraftClient({ fetch: fetch as never });
+
+    const first = await client.getPublicCharacters('SyntheticPlayer');
+    const second = await client.getPublicCharacters('SyntheticPlayer');
+    const invalid = await client.getPublicCharacters('not a valid name');
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(invalid.ok).toBe(false);
+    expect(first.trace.cache).toBe('bypass');
+    expect(second.trace.cache).toBe('bypass');
+    expect(invalid.trace.cache).toBe('bypass');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['', 'not a valid name', 'name/with/path', '12345678901234567', 'name-with-dash'])(
+    'rejects malformed username %j before making a request',
+    async (username) => {
+      const fetch = vi.fn(async () => response(200, { online: true }));
+      const client = createWynncraftClient({ fetch: fetch as never });
+
+      const result = await client.getPublicProfile(username);
+
+      expect(result.ok).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(result.trace.cache).toBe('bypass');
+      if (username) expect(JSON.stringify(result)).not.toContain(username);
+    },
+  );
+
+  it('returns only coarse partial state when character access is restricted', async () => {
+    const rawIdentifier = 'synthetic-character-marker';
+    const fetch = vi.fn(async () =>
+      response(200, {
+        username: 'SyntheticPlayer',
+        online: true,
+        uuid: rawIdentifier,
+        characters: { [rawIdentifier]: { id: rawIdentifier } },
+        restrictions: { characterListAccess: true, guildDataAccess: 'private' },
+      }),
+    );
+    const client = createWynncraftClient({ fetch: fetch as never });
+
+    const result = await client.getPublicProfile('SyntheticPlayer');
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toEqual({
+        status: 'partial',
+        online: true,
+        characterCount: null,
+        characterData: 'restricted',
+        characters: null,
+      });
+      expect(result.trace.cache).toBe('bypass');
+      expect(result.trace.message).toContain('restricted');
+      expect(JSON.stringify(result)).not.toContain(rawIdentifier);
+      expect(JSON.stringify(result)).not.toContain('characterListAccess');
+      expect(JSON.stringify(result)).not.toContain('guildDataAccess');
+    }
+  });
+
+  it('represents missing profile fields as partial unknown state', async () => {
+    const fetch = vi.fn(async () => response(200, { username: 'SyntheticPlayer', online: false }));
+    const client = createWynncraftClient({ fetch: fetch as never });
+
+    const result = await client.getPublicProfile('SyntheticPlayer');
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        status: 'partial',
+        online: false,
+        characterCount: null,
+        characterData: 'unknown',
+      },
+    });
+  });
+
+  it('rejects an identifier-only or malformed profile payload without copying it', async () => {
+    const rawIdentifier = 'synthetic-identifier-only-marker';
+    const fetch = vi.fn(async () => response(200, { uuid: rawIdentifier, guild: 'private' }));
+    const client = createWynncraftClient({ fetch: fetch as never });
+
+    const result = await client.getPublicProfile('SyntheticPlayer');
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('incomplete');
+    expect(result.trace.cache).toBe('bypass');
+    expect(JSON.stringify(result)).not.toContain(rawIdentifier);
+    expect(JSON.stringify(result)).not.toContain('private');
+  });
+
   it.each([
     [300, 'MultipleObjectsReturned'],
     [403, 'restricted'],
     [404, 'Not Found'],
-  ])('returns a readable non-retryable %s error', async (status, expected) => {
-    const fetch = vi.fn(async () => response(status, { secret: 'do not copy' }));
-    const client = createWynncraftClient({ fetch: fetch as never });
+    [429, 'rate limit'],
+  ])(
+    'returns a readable non-retryable %s error without response data',
+    async (status, expected) => {
+      const fetch = vi.fn(async () => response(status, { secret: 'synthetic-body-marker' }));
+      const client = createWynncraftClient({ fetch: fetch as never });
 
-    const result = await client.getPublicProfile('Alice');
+      const result = await client.getPublicProfile('SyntheticPlayer');
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain(expected);
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(result)).not.toContain('do not copy');
-  });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.toLowerCase()).toContain(expected.toLowerCase());
+        expect(result.error).not.toMatch(/uuid/i);
+      }
+      expect(result.trace.cache).toBe('bypass');
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(result)).not.toContain('synthetic-body-marker');
+    },
+  );
 
-  it('returns restricted fields directly without persisting identifiers in traces', async () => {
-    const uuid = '98bc2236-ada5-4039-b560-8aaa4cc50384';
-    const fetch = vi.fn(async () =>
-      response(200, { username: 'Alice', uuid, restrictions: { characterDataAccess: true } }),
-    );
-    const client = createWynncraftClient({ fetch: fetch as never });
-
-    const result = await client.getPublicProfile('Alice');
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data.uuid).toBe(uuid);
-      expect(result.trace.message).toContain('restricted');
-      expect(JSON.stringify(result.trace)).not.toContain(uuid);
-    }
-  });
-
-  it('never caches player or character payloads that may contain identifiers', async () => {
-    const fetch = vi.fn(async (url: string) =>
-      response(200, url.includes('/abilities') ? { selected: [] } : { level: 106 }),
-    );
-    const client = createWynncraftClient({ fetch: fetch as never });
-
-    await client.getPublicProfile('Alice');
-    await client.getPublicProfile('Alice');
-    await client.getCharacter('Alice', 'character-id');
-    await client.getCharacter('Alice', 'character-id');
-    await client.getCharacterAbilities('Alice', 'character-id');
-    await client.getCharacterAbilities('Alice', 'character-id');
-
-    expect(fetch).toHaveBeenCalledTimes(6);
-  });
-
-  it('times out once and aborts the injected request', async () => {
+  it('times out once, aborts, and marks profile errors as cache bypasses', async () => {
     vi.useFakeTimers();
     try {
       const abort = vi.fn();
@@ -89,19 +299,21 @@ describe('Wynncraft boundary client', () => {
         return new Promise<never>(() => undefined);
       });
       const client = createWynncraftClient({ fetch: fetch as never, timeoutMs: 25 });
-      const pending = client.getAbilityTree('mage');
+      const pending = client.getPublicProfile('SyntheticPlayer');
       await vi.advanceTimersByTimeAsync(25);
       const result = await pending;
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).toContain('timed out');
+      expect(result.trace.cache).toBe('bypass');
+      expect(fetch).toHaveBeenCalledTimes(1);
       expect(abort).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('also bounds a response whose JSON body never resolves', async () => {
+  it('also bounds a profile response whose body never resolves', async () => {
     vi.useFakeTimers();
     try {
       const abort = vi.fn();
@@ -115,15 +327,32 @@ describe('Wynncraft boundary client', () => {
         };
       });
       const client = createWynncraftClient({ fetch: fetch as never, timeoutMs: 25 });
-      const pending = client.getAbilityTree('mage');
+      const pending = client.getPublicProfile('SyntheticPlayer');
       await vi.advanceTimersByTimeAsync(25);
       const result = await pending;
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).toContain('timed out');
+      expect(result.trace.cache).toBe('bypass');
       expect(abort).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('never caches player or character payloads that may contain identifiers', async () => {
+    const fetch = vi.fn(async (url: string) =>
+      response(200, url.includes('/abilities') ? { selected: [] } : { level: 106 }),
+    );
+    const client = createWynncraftClient({ fetch: fetch as never });
+
+    await client.getPublicProfile('SyntheticPlayer');
+    await client.getPublicProfile('SyntheticPlayer');
+    await client.getCharacter('SyntheticPlayer', 'character-id');
+    await client.getCharacter('SyntheticPlayer', 'character-id');
+    await client.getCharacterAbilities('SyntheticPlayer', 'character-id');
+    await client.getCharacterAbilities('SyntheticPlayer', 'character-id');
+
+    expect(fetch).toHaveBeenCalledTimes(6);
   });
 });

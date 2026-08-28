@@ -10,7 +10,8 @@ The MVP uses these documented contracts:
 
 | Purpose             | Official route                                       | Cache / bucket                  | Product decision                                                                             |
 | ------------------- | ---------------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------- |
-| Public profile      | `GET /player/{username}`                             | 2 minutes / `PLAYER`            | Optional local lookup; surface ambiguity, restrictions, and incomplete character data.       |
+| Public profile      | `GET /player/{username}`                             | 2 minutes / `PLAYER`            | Optional local lookup; normalize online/access state and discard identity/account fields.    |
+| Character list      | `GET /player/{username}/characters`                  | 2 minutes / `PLAYER`            | Normalize only class/level; discard UUID map keys, nicknames, XP, modes, and unknown fields. |
 | Character detail    | `GET /player/{username}/characters/{uuid}`           | route documented under `PLAYER` | Fetch only after a public profile grants access. Never retain or publish a user's UUID.      |
 | Character abilities | `GET /player/{username}/characters/{uuid}/abilities` | `PLAYER`                        | Optional; access rules can make it unavailable.                                              |
 | Item database       | `GET /item/database?fullResult`                      | 1 hour / `ITEMS`                | Local typed tool; the presence-only `fullResult` flag must not be sent as `true` or `false`. |
@@ -21,6 +22,8 @@ The API documents independent guest limits of 50 requests per minute for the `SH
 ## Privacy and permitted use
 
 The [API Privacy documentation](https://docs.wynncraft.com/privacy) states that profile and character fields can be restricted through access rules. The `restrictions` map is authoritative; a restricted or incomplete response is not converted into a build.
+
+The public route accepts a username or UUID, and the documentation recommends UUIDs to avoid ambiguous names. Loadout Atelier deliberately accepts usernames only: a UUID would create a stronger persistent identifier, while an ambiguous username is safer to surface as a typed failure. The browser sends the transient username to the loopback service in a POST body; only the server constructs the official GET paths.
 
 The [Wynncraft API Terms](https://wynncraft.com/api-terms), effective 2026-05-18, permit API use subject to the documentation, law, and platform access controls. They also require applications to:
 
@@ -44,6 +47,7 @@ The API terms reserve the right to change or discontinue endpoints without notic
 - [Authentication and public-token guidance](https://docs.wynncraft.com/authentication)
 - [API privacy and access rules](https://docs.wynncraft.com/privacy)
 - [Player profile route](https://docs.wynncraft.com/modules/player/get-player)
+- [Character list route](https://docs.wynncraft.com/modules/player/list-player-characters)
 - [Character detail route](https://docs.wynncraft.com/modules/player/get-player-character)
 - [Character ability route](https://docs.wynncraft.com/modules/player/get-player-character-abilities)
 - [Item database route](https://docs.wynncraft.com/modules/item-recipe/list-items)

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import {
   CLASSES,
   EQUIPMENT_SLOTS,
@@ -26,6 +34,7 @@ import {
   type EvaluationScenario,
   type EvaluationScenarioResult,
 } from '../evals/harness';
+import type { WynncraftPublicCharacter, WynncraftPublicProfile } from '../data/types';
 
 type Screen = 'workspace' | 'evaluation';
 
@@ -34,6 +43,222 @@ type SavedBuild = {
   savedAt: string;
   build: Build;
   goals: BuildGoals;
+};
+
+type ProfileData = Omit<WynncraftPublicProfile, 'characters'> & {
+  characters: WynncraftPublicCharacter[];
+};
+
+type ProfileTrace = {
+  tool?: 'wynncraft.getPublicProfile' | 'wynncraft.getPublicCharacters';
+  mode?: string;
+  status?: string;
+  startedAt?: string;
+  durationMs?: number;
+};
+
+type ProfileLookupState = {
+  kind:
+    | 'idle'
+    | 'loading'
+    | 'invalid-input'
+    | 'complete'
+    | 'partial'
+    | 'ambiguous'
+    | 'restricted'
+    | 'not-found'
+    | 'rate-limit'
+    | 'timeout'
+    | 'error'
+    | 'fixture-only';
+  message?: string;
+  data?: ProfileData;
+  trace?: ProfileTrace;
+  traces?: ProfileTrace[];
+};
+
+type AppProps = {
+  /** Override the local-dev gate in tests; production defaults to fixture-only. */
+  profileImportEnabled?: boolean;
+  /** Inject a fetch implementation for local UI tests without making network calls. */
+  profileFetch?: typeof fetch;
+};
+
+const PROFILE_NAME_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
+const isLoopbackHost = (hostname: string): boolean =>
+  hostname === 'localhost' ||
+  hostname === '127.0.0.1' ||
+  hostname === '::1' ||
+  hostname === '[::1]';
+const DEFAULT_PROFILE_IMPORT_ENABLED =
+  typeof window !== 'undefined' && isLoopbackHost(window.location.hostname);
+
+const profileCharactersFrom = (value: unknown): WynncraftPublicCharacter[] | null => {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 32) return null;
+  const characters: WynncraftPublicCharacter[] = [];
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const record = candidate as Record<string, unknown>;
+    const classId =
+      typeof record.classId === 'string' && (CLASSES as readonly string[]).includes(record.classId)
+        ? (record.classId as ClassId)
+        : null;
+    const level = record.level;
+    if (
+      !classId ||
+      typeof level !== 'number' ||
+      !Number.isInteger(level) ||
+      !Number.isFinite(level) ||
+      level < 1 ||
+      level > 200
+    ) {
+      return null;
+    }
+    characters.push({ classId, level });
+  }
+  return characters;
+};
+
+const profileDataFrom = (value: unknown): ProfileData | null => {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (record.status !== 'public' && record.status !== 'partial') return null;
+  const characterData =
+    record.characterData === 'available' ||
+    record.characterData === 'restricted' ||
+    record.characterData === 'unknown'
+      ? record.characterData
+      : 'unknown';
+  const online =
+    typeof record.online === 'boolean' || record.online === null ? record.online : null;
+  const characterCount =
+    typeof record.characterCount === 'number' && Number.isFinite(record.characterCount)
+      ? Math.max(0, Math.round(record.characterCount))
+      : null;
+  const characters = profileCharactersFrom(record.characters);
+  if (!characters) return null;
+  if (characterData !== 'available' && characters.length > 0) return null;
+  if (
+    characterData === 'available' &&
+    characterCount !== null &&
+    characterCount !== characters.length
+  ) {
+    return null;
+  }
+  return {
+    status: record.status,
+    online,
+    characterCount,
+    characterData,
+    characters,
+  };
+};
+
+const profileTraceFrom = (value: unknown): ProfileTrace | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const trace: ProfileTrace = {};
+  if (
+    record.tool === 'wynncraft.getPublicProfile' ||
+    record.tool === 'wynncraft.getPublicCharacters'
+  ) {
+    trace.tool = record.tool;
+  }
+  if (record.mode === 'live' || record.mode === 'cached' || record.mode === 'fixture') {
+    trace.mode = record.mode;
+  }
+  if (
+    record.status === 'ok' ||
+    record.status === 'success' ||
+    record.status === 'error' ||
+    record.status === 'abstained' ||
+    record.status === 'fallback'
+  ) {
+    trace.status = record.status;
+  }
+  if (typeof record.startedAt === 'string' && !Number.isNaN(Date.parse(record.startedAt))) {
+    trace.startedAt = new Date(record.startedAt).toISOString();
+  }
+  if (typeof record.durationMs === 'number' && Number.isFinite(record.durationMs)) {
+    trace.durationMs = Math.max(0, Math.round(record.durationMs));
+  }
+  return Object.keys(trace).length ? trace : undefined;
+};
+
+const profileStateForResponse = (body: unknown, responseStatus: number): ProfileLookupState => {
+  const responseRecord =
+    body && typeof body === 'object' ? (body as Record<string, unknown>) : null;
+  if (responseRecord?.mode === 'fixture') {
+    return {
+      kind: 'fixture-only',
+      message: 'Live profile lookup is unavailable in fixture mode.',
+    };
+  }
+  if (responseStatus === 404) {
+    return { kind: 'not-found', message: 'No public profile was found for that name.' };
+  }
+  if (responseStatus === 409) {
+    return {
+      kind: 'ambiguous',
+      message: 'That player name is ambiguous. Refine it and try again; nothing was imported.',
+    };
+  }
+  if (responseStatus === 403) {
+    return { kind: 'restricted', message: 'This public profile is restricted.' };
+  }
+  if (responseStatus === 408 || responseStatus === 504) {
+    return { kind: 'timeout', message: 'The profile service timed out. Try again later.' };
+  }
+  if (responseStatus === 429) {
+    return { kind: 'rate-limit', message: 'The profile service is rate-limited. Try again later.' };
+  }
+  if (responseStatus < 200 || responseStatus >= 300) {
+    return { kind: 'error', message: 'The public profile could not be checked right now.' };
+  }
+  if (!body || typeof body !== 'object') {
+    return { kind: 'error', message: 'The profile service returned an unreadable response.' };
+  }
+  const record = responseRecord as Record<string, unknown>;
+  const dataPayload = record.data ?? record;
+  const data = profileDataFrom(dataPayload);
+  if (!data) {
+    return { kind: 'error', message: 'The profile service returned incomplete profile metadata.' };
+  }
+  const trace = profileTraceFrom(record.trace);
+  const traces = Array.isArray(record.traces)
+    ? record.traces
+        .map((candidate) => profileTraceFrom(candidate))
+        .filter((candidate): candidate is ProfileTrace => candidate !== undefined)
+        .slice(0, 4)
+    : trace
+      ? [trace]
+      : [];
+  if (data.characterData === 'restricted') {
+    return {
+      kind: 'partial',
+      data,
+      trace,
+      traces,
+      message: 'Public profile metadata is available, but character data is restricted.',
+    };
+  }
+  if (data.status === 'partial' || data.characterData === 'unknown') {
+    return {
+      kind: 'partial',
+      data,
+      trace,
+      traces,
+      message: 'Only partial public profile metadata is available.',
+    };
+  }
+  return {
+    kind: 'complete',
+    data,
+    trace,
+    traces,
+    message: 'Public profile preview ready.',
+  };
 };
 
 const STORAGE_KEY = 'loadout-atelier.saved-builds.v1';
@@ -233,7 +458,300 @@ function StatGrid({ stats, compact = false }: { stats: BuildStats; compact?: boo
   );
 }
 
-function App() {
+function ProfileImportPanel({
+  enabled,
+  username,
+  setUsername,
+  state,
+  inputRef,
+  onSubmit,
+  onClear,
+  onClose,
+  onApplyCharacter,
+}: {
+  enabled: boolean;
+  username: string;
+  setUsername: (value: string) => void;
+  state: ProfileLookupState;
+  inputRef: { current: HTMLInputElement | null };
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onClear: () => void;
+  onClose: () => void;
+  onApplyCharacter: (character: WynncraftPublicCharacter) => void;
+}) {
+  const statusMessage = state.message;
+  const isAlert = [
+    'invalid-input',
+    'ambiguous',
+    'restricted',
+    'not-found',
+    'rate-limit',
+    'timeout',
+    'error',
+  ].includes(state.kind);
+  const sourceMode =
+    state.trace?.mode === 'cached'
+      ? 'cached'
+      : state.trace?.mode === 'fixture'
+        ? 'fixture'
+        : 'live';
+  return (
+    <div className="profile-import-panel" id="profile-import-panel">
+      <div className="profile-panel-heading">
+        <div>
+          <h3 id="profile-import-title">Import public profile</h3>
+          <p className="profile-panel-copy">
+            Check public metadata as a preview. Equipment and abilities stay manual.
+          </p>
+        </div>
+        <button
+          className="icon-button profile-close"
+          type="button"
+          aria-label="Close public profile preview"
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </div>
+
+      <form className="profile-import-form" aria-label="Import public profile" onSubmit={onSubmit}>
+        <label className="field-label" htmlFor="profile-username">
+          Public player name
+        </label>
+        <input
+          ref={inputRef}
+          id="profile-username"
+          className="text-input"
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
+          maxLength={16}
+          pattern="[A-Za-z0-9_]{1,16}"
+          autoComplete="off"
+          spellCheck={false}
+          inputMode="text"
+          aria-describedby="profile-privacy profile-evidence-legend profile-name-hint"
+          aria-invalid={state.kind === 'invalid-input'}
+        />
+        <p className="field-hint profile-name-hint" id="profile-name-hint">
+          1–16 letters, numbers, or underscores
+        </p>
+        {enabled ? (
+          <button
+            className="secondary-button full-width"
+            type="submit"
+            disabled={state.kind === 'loading'}
+          >
+            <Icon name="refresh" /> {state.kind === 'loading' ? 'Checking…' : 'Check preview'}
+          </button>
+        ) : (
+          <button className="secondary-button full-width" type="submit" disabled>
+            <Icon name="refresh" /> Live lookup unavailable
+          </button>
+        )}
+        <button
+          className="text-button profile-clear"
+          type="button"
+          onClick={onClear}
+          disabled={!username && state.kind === 'idle'}
+        >
+          Clear name and result
+        </button>
+      </form>
+
+      <p className="profile-privacy" id="profile-privacy">
+        This name stays in this tab’s memory only. It is never saved, exported, put in the URL, or
+        copied into the build.
+      </p>
+
+      {!enabled ? (
+        <div className="profile-fixture-notice" role="status">
+          <Badge tone="fixture">FIXTURE-ONLY</Badge>
+          <span>
+            Hosted builds use synthetic fixture data. Public profile lookup is disabled here and no
+            name will be sent.
+          </span>
+        </div>
+      ) : null}
+
+      <div className="profile-evidence-legend" id="profile-evidence-legend">
+        <span className="profile-legend-title">Evidence labels</span>
+        <span>
+          <Badge tone="manual">Manual</Badge> entered in this form
+        </span>
+        <span>
+          <Badge tone="live">Live</Badge> current service response
+        </span>
+        <span>
+          <Badge tone="cached">Cached</Badge> previously retrieved contract
+        </span>
+        <span>
+          <Badge tone="neutral">Inferred</Badge> derived, not observed
+        </span>
+        <span>
+          <Badge tone="neutral">Unknown</Badge> not provided
+        </span>
+      </div>
+
+      {state.kind !== 'idle' && state.kind !== 'loading' && state.kind !== 'fixture-only' ? (
+        <div
+          className={`profile-result profile-result-${state.kind}`}
+          role={isAlert ? 'alert' : 'status'}
+          aria-live="polite"
+        >
+          <div className="profile-result-heading">
+            <strong>
+              {state.kind === 'complete'
+                ? 'Complete public metadata'
+                : state.kind === 'partial'
+                  ? 'Partial public metadata'
+                  : state.kind === 'restricted'
+                    ? 'Profile restricted'
+                    : state.kind === 'ambiguous'
+                      ? 'Player name ambiguous'
+                      : state.kind === 'not-found'
+                        ? 'Profile not found'
+                        : state.kind === 'rate-limit'
+                          ? 'Lookup rate-limited'
+                          : state.kind === 'timeout'
+                            ? 'Lookup timed out'
+                            : 'Lookup unavailable'}
+            </strong>
+            {state.data ? (
+              <Badge tone={sourceMode}>
+                {sourceMode === 'cached' ? 'CACHED' : sourceMode === 'fixture' ? 'FIXTURE' : 'LIVE'}
+              </Badge>
+            ) : null}
+          </div>
+          {statusMessage ? <p>{statusMessage}</p> : null}
+          {state.data ? (
+            <div className="profile-facts" aria-label="Public profile metadata">
+              <div>
+                <span>Profile status</span>
+                <strong>{state.data.status}</strong>
+              </div>
+              <div>
+                <span>Online</span>
+                <strong>
+                  {state.data.online === null ? (
+                    <Badge tone="neutral">UNKNOWN</Badge>
+                  ) : state.data.online ? (
+                    'Yes'
+                  ) : (
+                    'No'
+                  )}
+                </strong>
+              </div>
+              <div>
+                <span>Characters</span>
+                <strong>
+                  {state.data.characterCount === null ? (
+                    <Badge tone="neutral">UNKNOWN</Badge>
+                  ) : (
+                    formatNumber(state.data.characterCount)
+                  )}
+                </strong>
+              </div>
+              <div>
+                <span>Character data</span>
+                <strong>
+                  {state.data.characterData === 'available' ? (
+                    'Available'
+                  ) : (
+                    <Badge tone="neutral">
+                      {state.data.characterData === 'restricted' ? 'RESTRICTED' : 'UNKNOWN'}
+                    </Badge>
+                  )}
+                </strong>
+              </div>
+            </div>
+          ) : null}
+          {state.data?.characters.length ? (
+            <section
+              className="profile-character-section"
+              aria-labelledby="profile-characters-title"
+            >
+              <div className="profile-character-heading">
+                <h4 id="profile-characters-title">Character previews</h4>
+                <span>class + level only</span>
+              </div>
+              <ol className="profile-character-list">
+                {state.data.characters.map((character, index) => (
+                  <li
+                    className="profile-character-row"
+                    key={`${character.classId}-${character.level}-${index}`}
+                  >
+                    <div>
+                      <span className="profile-character-ordinal">Character {index + 1}</span>
+                      <strong>
+                        {classLabels[character.classId]} · Level {character.level}
+                      </strong>
+                    </div>
+                    <button
+                      className="profile-character-apply"
+                      type="button"
+                      aria-label={
+                        character.level > currentDataset.rules.maxLevel
+                          ? `${classLabels[character.classId]} level ${character.level} exceeds this fixture's supported level`
+                          : `Use ${classLabels[character.classId]} level ${character.level} from Character ${index + 1}`
+                      }
+                      disabled={character.level > currentDataset.rules.maxLevel}
+                      onClick={() => onApplyCharacter(character)}
+                    >
+                      {character.level > currentDataset.rules.maxLevel
+                        ? 'Level unsupported'
+                        : 'Use class and level'}
+                    </button>
+                  </li>
+                ))}
+              </ol>
+              <p className="profile-character-note">
+                Applying a preview changes class and level, removes selected abilities from other
+                classes, and leaves equipment unchanged.
+              </p>
+            </section>
+          ) : null}
+          {state.trace ? (
+            <div className="profile-traces" aria-label="Profile tool outcomes">
+              {(state.traces?.length ? state.traces : [state.trace]).map((trace, index) => (
+                <small className="profile-trace" key={`${trace.tool ?? 'profile'}-${index}`}>
+                  {trace.tool === 'wynncraft.getPublicCharacters' ? 'Character list' : 'Profile'}:{' '}
+                  {trace.mode ?? sourceMode}
+                  {trace.status ? ` · ${trace.status}` : ''}
+                  {typeof trace.durationMs === 'number' ? ` · ${trace.durationMs} ms` : ''}
+                </small>
+              ))}
+            </div>
+          ) : null}
+          {state.data ? (
+            <p className="profile-preview-note">
+              Preview only. Select equipment and abilities manually in the build laboratory.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {state.kind === 'loading' ? (
+        <div className="profile-loading" role="status" aria-live="polite" aria-busy="true">
+          Checking public profile metadata…
+        </div>
+      ) : null}
+      {state.kind === 'fixture-only' ? (
+        <div
+          className="profile-result profile-result-fixture-only"
+          role="status"
+          aria-live="polite"
+        >
+          <strong>Fixture-only mode</strong>
+          <p>{statusMessage ?? 'No live profile request was made.'}</p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function App({
+  profileImportEnabled = DEFAULT_PROFILE_IMPORT_ENABLED,
+  profileFetch = fetch,
+}: AppProps) {
   const [screen, setScreen] = useState<Screen>('workspace');
   const [build, setBuild] = useState<Build>(() => structuredClone(demoBuild));
   const [goals, setGoals] = useState<BuildGoals>(() => structuredClone(demoGoals));
@@ -255,6 +773,18 @@ function App() {
   const [evaluationReport, setEvaluationReport] = useState<EvaluationReport | null>(null);
   const [evaluationLoading, setEvaluationLoading] = useState(false);
   const [evaluationError, setEvaluationError] = useState<string | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileUsername, setProfileUsername] = useState('');
+  const [profileState, setProfileState] = useState<ProfileLookupState>({ kind: 'idle' });
+  const profileInputRef = useRef<HTMLInputElement>(null);
+  const profileTriggerRef = useRef<HTMLButtonElement>(null);
+  const profileAbortRef = useRef<AbortController | null>(null);
+  const profileRequestIdRef = useRef(0);
+
+  const githubPagesHost =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'github.io' || window.location.hostname.endsWith('.github.io'));
+  const liveProfileEnabled = profileImportEnabled && !githubPagesHost;
 
   const validation = useMemo(() => runValidation(build, currentDataset, goals), [build, goals]);
 
@@ -268,6 +798,14 @@ function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  useEffect(
+    () => () => {
+      profileRequestIdRef.current += 1;
+      profileAbortRef.current?.abort();
+    },
+    [],
+  );
+
   const updateBuild = useCallback((patch: Partial<Build>) => {
     setBuild((current) => ({ ...current, ...patch }));
     setRecommendation(null);
@@ -280,6 +818,21 @@ function App() {
       abilities: current.abilities.filter(
         (abilityId) =>
           currentDataset.abilities.find((ability) => ability.id === abilityId)?.classId === classId,
+      ),
+    }));
+    setRecommendation(null);
+  };
+
+  const applyProfileCharacter = (character: WynncraftPublicCharacter) => {
+    if (character.level > currentDataset.rules.maxLevel) return;
+    setBuild((current) => ({
+      ...current,
+      classId: character.classId,
+      level: character.level,
+      abilities: current.abilities.filter(
+        (abilityId) =>
+          currentDataset.abilities.find((ability) => ability.id === abilityId)?.classId ===
+          character.classId,
       ),
     }));
     setRecommendation(null);
@@ -304,6 +857,90 @@ function App() {
   const updateGoal = <K extends keyof BuildGoals>(key: K, value: BuildGoals[K]) => {
     setGoals((current) => ({ ...current, [key]: value }));
     setRecommendation(null);
+  };
+
+  const abortProfileRequest = () => {
+    profileRequestIdRef.current += 1;
+    profileAbortRef.current?.abort();
+    profileAbortRef.current = null;
+  };
+
+  const clearProfile = () => {
+    abortProfileRequest();
+    setProfileUsername('');
+    setProfileState({ kind: 'idle' });
+  };
+
+  const closeProfile = () => {
+    clearProfile();
+    setProfileOpen(false);
+    window.setTimeout(() => profileTriggerRef.current?.focus(), 0);
+  };
+
+  const openProfile = () => {
+    setProfileOpen(true);
+    window.setTimeout(() => profileInputRef.current?.focus(), 0);
+  };
+
+  const submitProfileLookup = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!liveProfileEnabled) {
+      abortProfileRequest();
+      setProfileState({
+        kind: 'fixture-only',
+        message: 'No live profile request was made in fixture-only mode.',
+      });
+      return;
+    }
+    const normalized = profileUsername.trim();
+    if (!PROFILE_NAME_PATTERN.test(normalized)) {
+      setProfileState({
+        kind: 'invalid-input',
+        message: 'Use 1–16 letters, numbers, or underscores for the public player name.',
+      });
+      return;
+    }
+    setProfileUsername(normalized);
+
+    abortProfileRequest();
+    const requestId = profileRequestIdRef.current;
+    const controller = new AbortController();
+    profileAbortRef.current = controller;
+    let timedOut = false;
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 8000);
+    setProfileState({ kind: 'loading' });
+    try {
+      const response = await profileFetch('/api/profile', {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerName: normalized }),
+        signal: controller.signal,
+      });
+      if (requestId !== profileRequestIdRef.current) return;
+      const body = (await response.json()) as unknown;
+      setProfileState(profileStateForResponse(body, response.status));
+    } catch (error) {
+      if (requestId !== profileRequestIdRef.current) return;
+      if (timedOut) {
+        setProfileState({
+          kind: 'timeout',
+          message: 'The profile service timed out. Try again later.',
+        });
+      } else if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      } else {
+        setProfileState({
+          kind: 'error',
+          message: 'The public profile could not be checked right now.',
+        });
+      }
+    } finally {
+      window.clearTimeout(timeoutId);
+      if (profileRequestIdRef.current === requestId) profileAbortRef.current = null;
+    }
   };
 
   const validateCurrent = (event?: FormEvent) => {
@@ -654,9 +1291,48 @@ function App() {
               </form>
             </section>
 
+            <section className="rail-section profile-section">
+              <SectionHeading
+                eyebrow="02 / optional context"
+                title="Public profile"
+                detail="Metadata can inform review; it never becomes equipment."
+              />
+              <button
+                ref={profileTriggerRef}
+                className="secondary-button full-width profile-trigger"
+                type="button"
+                aria-expanded={profileOpen}
+                aria-controls={profileOpen ? 'profile-import-panel' : undefined}
+                onClick={profileOpen ? closeProfile : openProfile}
+              >
+                {profileOpen ? 'Close profile preview' : 'Import public profile'}
+              </button>
+              <p className="profile-gate-copy">
+                {liveProfileEnabled
+                  ? 'Local-dev lookup only; the name is kept in this tab memory.'
+                  : 'Fixture-only here; no public profile request will be sent.'}
+              </p>
+              {profileOpen ? (
+                <ProfileImportPanel
+                  enabled={liveProfileEnabled}
+                  username={profileUsername}
+                  setUsername={(value) => {
+                    setProfileUsername(value);
+                    if (profileState.kind !== 'idle') setProfileState({ kind: 'idle' });
+                  }}
+                  state={profileState}
+                  inputRef={profileInputRef}
+                  onSubmit={submitProfileLookup}
+                  onClear={clearProfile}
+                  onClose={closeProfile}
+                  onApplyCharacter={applyProfileCharacter}
+                />
+              ) : null}
+            </section>
+
             <section className="rail-section goals-section">
               <SectionHeading
-                eyebrow="02 / intent"
+                eyebrow="03 / intent"
                 title="Goal controls"
                 detail="Weights guide deterministic tradeoffs; they do not invent data."
               />
@@ -757,7 +1433,7 @@ function App() {
 
             <section className="rail-section saved-section">
               <SectionHeading
-                eyebrow="03 / memory"
+                eyebrow="04 / memory"
                 title="Saved builds"
                 detail="Stored locally on this device."
               />

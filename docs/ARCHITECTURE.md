@@ -14,7 +14,7 @@ Hosted/static browser                          Optional local Node service
                └──────── strict schema + deterministic recheck┘
 ```
 
-The GitHub Pages build is useful without a service: manual construction, validation, deterministic recommendations, comparisons, saved builds, fixture patch re-evaluation, scenario replay, evidence cards, and export all run locally. Public profile lookup and provider-assisted explanations are local-service capabilities; the hosted app never receives provider credentials.
+The GitHub Pages build is useful without a service: manual construction, validation, deterministic recommendations, comparisons, saved builds, fixture patch re-evaluation, scenario replay, evidence cards, and export all run locally. Public profile lookup and provider-assisted explanations are local-service capabilities; the hosted app never receives provider credentials and cannot submit a player name.
 
 ## Module boundaries
 
@@ -48,6 +48,19 @@ type ToolOutcome<T> =
 
 ## State and data flow
 
-Builds are plain typed objects. Browser persistence is explicit and local; JSON export includes the selected build, goals, validation, recommendation, dataset metadata, source cards, and retrieval timestamps. No server database exists. Live profile output is transient and is not written to local storage automatically.
+Builds are plain typed objects. Browser persistence is explicit and local; JSON export includes the selected build, goals, validation, recommendation, dataset metadata, source cards, and retrieval timestamps. No server database exists.
+
+A local profile lookup follows a separate transient path:
+
+```text
+player name in memory ──POST /api/profile──► official profile + character-list tools
+        │                                      │
+        │                                      └─ discard selector, UUID keys, nicknames,
+        │                                         raw restrictions, and unknown fields
+        ▼
+identity-free class/level preview ──explicit apply──► ordinary manual build fields
+```
+
+Closing or clearing the panel aborts the request and erases the selector and preview. Only an explicit user action may copy a normalized class and level into the build; equipment and abilities are never inferred from the profile response. That ordinary build may then be saved or exported without lookup identity or provenance that could identify the player.
 
 The fixture includes synthetic names and values designed to exercise the engine. Official documentation establishes route contracts, privacy behavior, cache/rate-limit behavior, and the live API version; it does not validate the fixture's fictional item balance.

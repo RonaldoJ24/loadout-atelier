@@ -4,7 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { createDeepSeekProvider } from '../src/ai/deepseek.js';
 import { explainRecommendation } from '../src/ai/recommendation.js';
 import { createWynncraftClient } from '../src/data/wynncraft.js';
-import type { ToolOutcome, WynncraftClient } from '../src/data/types.js';
+import type {
+  ToolTrace,
+  WynncraftClient,
+  WynncraftPublicCharacter,
+  WynncraftPublicProfile,
+} from '../src/data/types.js';
 import type { DeepSeekProvider } from '../src/ai/types.js';
 import type { RecommendationResult, VersionedDataset } from '../src/domain/contracts.js';
 
@@ -32,7 +37,7 @@ export type ServerOptions = {
 const DEFAULT_PORT = 4317;
 const DEFAULT_BASE_URL = 'https://api.wynncraft.com/v3';
 const DEFAULT_MODEL = 'deepseek-v4-flash';
-const MAX_SELECTOR_LENGTH = 128;
+const MINECRAFT_PLAYER_NAME_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -65,18 +70,10 @@ const localOrigin = (origin: string): boolean => {
   }
 };
 
-const selectorSafe = (selector: string): boolean => {
-  const hasControlCharacter = [...selector].some((character) => {
-    const code = character.charCodeAt(0);
-    return code < 32 || code === 127;
-  });
-  const hasPathDelimiter = ['/', '\\', '?', '#'].some((character) => selector.includes(character));
-  return (
-    selector.length > 0 &&
-    selector.length <= MAX_SELECTOR_LENGTH &&
-    !hasControlCharacter &&
-    !hasPathDelimiter
-  );
+const normalizePlayerName = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return MINECRAFT_PLAYER_NAME_PATTERN.test(normalized) ? normalized : undefined;
 };
 
 const outcomeStatus = (error: string): number => {
@@ -89,24 +86,31 @@ const outcomeStatus = (error: string): number => {
   return 502;
 };
 
-const sendOutcome = <T>(res: Response, mode: ServerMode, outcome: ToolOutcome<T>): void => {
-  if (!outcome.ok) {
-    res.status(outcomeStatus(outcome.error)).json({
-      mode,
-      error: outcome.error,
-      trace: outcome.trace,
-    });
-    return;
-  }
-  res.status(200).json({ mode, data: outcome.data, trace: outcome.trace });
-};
-
-const fixtureProfile = (): Record<string, unknown> => ({
-  username: 'fixture-player',
-  online: false,
-  restrictions: {},
-  source: 'synthetic fixture',
+const fixtureProfileUnavailableTrace = (): ToolTrace => ({
+  id: 'wynncraft-profile-fixture',
+  tool: 'wynncraft.getPublicProfile',
+  status: 'fallback',
+  mode: 'fixture',
+  startedAt: new Date().toISOString(),
+  durationMs: 0,
+  sourceIds: ['wynncraft-api'],
+  message: 'live profile lookup is unavailable in fixture mode',
+  cache: 'bypass',
 });
+
+const profileDataWithCharacters = (
+  profile: WynncraftPublicProfile,
+  characters: WynncraftPublicCharacter[] | null,
+  restricted: boolean,
+): WynncraftPublicProfile => ({
+  status: characters === null && restricted ? 'partial' : profile.status,
+  online: profile.online,
+  characterCount: characters === null ? null : characters.length,
+  characterData: characters === null ? (restricted ? 'restricted' : 'unknown') : 'available',
+  characters,
+});
+
+const isRestrictionError = (error: string): boolean => /\b403\b|restricted|denied/i.test(error);
 
 const safeErrorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
   void _next;
@@ -162,20 +166,80 @@ export const createApp = (options: ServerOptions = {}): express.Express => {
     });
   });
 
-  app.get('/api/profile/:selector', async (request: Request, response: Response) => {
-    const selectorValue = request.params.selector;
-    const selector = typeof selectorValue === 'string' ? selectorValue : '';
-    if (!selectorSafe(selector)) {
-      response.status(400).json({ error: 'Profile selector must be a safe username or UUID.' });
+  app.post('/api/profile', async (request: Request, response: Response) => {
+    const playerName =
+      isRecord(request.body) &&
+      Object.keys(request.body).length === 1 &&
+      Object.prototype.hasOwnProperty.call(request.body, 'playerName')
+        ? normalizePlayerName(request.body.playerName)
+        : undefined;
+    if (!playerName) {
+      response.status(400).json({
+        error:
+          'Profile name must be a trimmed Minecraft username (1-16 letters, numbers, or underscores).',
+      });
       return;
     }
     if (mode === 'fixture') {
-      response.json({ mode, data: fixtureProfile() });
+      const trace = fixtureProfileUnavailableTrace();
+      response.status(503).json({
+        mode,
+        error: 'Live profile lookup is unavailable in fixture mode.',
+        trace,
+        traces: [trace],
+      });
       return;
     }
     try {
-      const outcome = await client.getPublicProfile(selector);
-      sendOutcome(response, mode, outcome);
+      const profileOutcome = await client.getPublicProfile(playerName);
+      if (!profileOutcome.ok) {
+        response.status(outcomeStatus(profileOutcome.error)).json({
+          mode,
+          error: profileOutcome.error,
+          trace: profileOutcome.trace,
+          traces: [profileOutcome.trace],
+        });
+        return;
+      }
+
+      const profileTrace = profileOutcome.trace;
+      // A profile restriction is authoritative. Do not make a second request
+      // that would only repeat a denied character-list lookup.
+      if (profileOutcome.data.characterData === 'restricted') {
+        const data = profileDataWithCharacters(profileOutcome.data, null, true);
+        response.status(200).json({
+          mode,
+          data,
+          trace: profileTrace,
+          traces: [profileTrace],
+        });
+        return;
+      }
+
+      const charactersOutcome = await client.getPublicCharacters(playerName);
+      const traces = [profileTrace, charactersOutcome.trace];
+      if (!charactersOutcome.ok) {
+        if (isRestrictionError(charactersOutcome.error)) {
+          const data = profileDataWithCharacters(profileOutcome.data, null, true);
+          response.status(200).json({
+            mode,
+            data,
+            trace: profileTrace,
+            traces,
+          });
+          return;
+        }
+        response.status(outcomeStatus(charactersOutcome.error)).json({
+          mode,
+          error: charactersOutcome.error,
+          trace: charactersOutcome.trace,
+          traces,
+        });
+        return;
+      }
+
+      const data = profileDataWithCharacters(profileOutcome.data, charactersOutcome.data, false);
+      response.status(200).json({ mode, data, trace: profileTrace, traces });
     } catch {
       response.status(502).json({ error: 'Profile service is temporarily unavailable.' });
     }

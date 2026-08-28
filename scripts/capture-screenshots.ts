@@ -20,8 +20,9 @@ await desktop.locator('.recommendation-zone').screenshot({
   path: new URL('comparison.png', docsDirectory).pathname,
 });
 await desktop.getByRole('button', { name: /Evaluation desk/i }).click();
-await desktop.getByRole('button', { name: /Run all 34 release cases/i }).click();
-await desktop.getByText('34/34 scenarios passed').waitFor();
+const scenarioCount = await desktop.locator('.scenario-card').count();
+await desktop.getByRole('button', { name: /Run all \d+ release cases/i }).click();
+await desktop.getByText(`${scenarioCount}/${scenarioCount} scenarios passed`).waitFor();
 await desktop.evaluate(() => window.scrollTo({ top: 0, behavior: 'auto' }));
 await desktop.screenshot({
   path: new URL('evaluations.png', docsDirectory).pathname,
