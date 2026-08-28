@@ -35,7 +35,7 @@ jobs:
       - run: npm run e2e
       - run: npm run secret:scan
       - run: npm audit --audit-level=high
-      - if: always()
+      - if: success()
         uses: actions/upload-artifact@v7
         with:
           name: acceptance-artifacts
