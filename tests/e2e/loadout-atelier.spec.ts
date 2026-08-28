@@ -86,7 +86,7 @@ test('production host keeps public profile fixture-only and identity-free', asyn
   await page.getByRole('form', { name: 'Import public profile' }).evaluate((form) => {
     (form as HTMLFormElement).requestSubmit();
   });
-  await expect(page.getByText('Fixture-only mode')).toBeVisible();
+  await expect(page.getByText('Fixture-only mode', { exact: true })).toBeVisible();
   expect(profileRequests).toBe(0);
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('Example_1');
 
