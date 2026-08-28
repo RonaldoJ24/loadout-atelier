@@ -21,7 +21,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "eval": "tsx scripts/run-evals.ts",
+    "eval:promote": "tsx scripts/run-evals.ts --promote",
+    "smoke:provider:live": "tsx scripts/live-provider-smoke.ts",
     "e2e": "playwright test",
+    "screenshots": "tsx scripts/capture-screenshots.ts",
     "secret:scan": "node scripts/secret-scan.mjs",
     "acceptance": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run eval && npm run build && npm run e2e && npm run secret:scan",
     "start": "tsx server/index.ts"

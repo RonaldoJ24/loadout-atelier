@@ -22,6 +22,7 @@ const textExtensions = new Set([
   '.yaml',
   '.yml',
 ]);
+const binaryArtifactExtensions = new Set(['.png', '.zip', '.tgz', '.gz']);
 
 const rules = [
   { label: 'private key material', pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
@@ -42,7 +43,11 @@ function walk(directory) {
     const absolute = join(directory, entry);
     const info = statSync(absolute);
     if (info.isDirectory()) files.push(...walk(absolute));
-    else if (info.size <= 2_000_000 && textExtensions.has(extname(entry))) files.push(absolute);
+    else if (
+      info.size <= 5_000_000 &&
+      (textExtensions.has(extname(entry)) || binaryArtifactExtensions.has(extname(entry)))
+    )
+      files.push(absolute);
   }
   return files;
 }
@@ -55,10 +60,23 @@ function inspect(label, content, findings) {
 
 const findings = [];
 for (const file of walk(root)) {
-  inspect(relative(root, file), readFileSync(file, 'utf8'), findings);
+  const extension = extname(file);
+  const encoding = textExtensions.has(extension) ? 'utf8' : 'latin1';
+  inspect(relative(root, file), readFileSync(file).toString(encoding), findings);
 }
 
 if (existsSync(join(root, '.git'))) {
+  try {
+    const staged = execFileSync('git', ['diff', '--cached', '--no-ext-diff'], {
+      cwd: root,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    inspect('staged-diff', staged, findings);
+  } catch {
+    findings.push('staged-diff: unable to inspect');
+  }
   try {
     const history = execFileSync('git', ['log', '-p', '--all', '--no-ext-diff'], {
       cwd: root,
@@ -78,6 +96,6 @@ if (findings.length > 0) {
   process.exitCode = 1;
 } else {
   console.log(
-    'Secret scan passed: working tree, artifacts, and Git history contain no known credential patterns.',
+    'Secret scan passed: working tree, staged diff, build/package artifacts, screenshots, and Git history contain no known credential patterns.',
   );
 }
