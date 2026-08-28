@@ -1,6 +1,7 @@
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
-import { createApp, startServer } from '../../server/index';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createWynncraftClient } from '../../src/data/wynncraft';
+import { createApp, startServer, type ServerOptions } from '../../server/index';
 
 const servers: Array<ReturnType<ReturnType<typeof createApp>['listen']>> = [];
 
@@ -12,8 +13,8 @@ afterEach(async () => {
   );
 });
 
-async function start() {
-  const server = createApp({ mode: 'fixture' }).listen(0, '127.0.0.1');
+async function start(options: ServerOptions = { mode: 'fixture' }) {
+  const server = createApp(options).listen(0, '127.0.0.1');
   servers.push(server);
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address() as AddressInfo;
@@ -43,13 +44,93 @@ describe('local service contract', () => {
     expect(JSON.stringify(body)).not.toContain('DEEPSEEK');
   });
 
-  it('returns only the synthetic profile in fixture mode', async () => {
+  it('reports profile lookup as unavailable in fixture mode without synthetic data', async () => {
     const baseUrl = await start();
     const response = await fetch(`${baseUrl}/api/profile/SyntheticTester`);
-    const body = (await response.json()) as Record<string, unknown>;
+    const body = (await response.json()) as Record<string, unknown> & {
+      trace?: Record<string, unknown>;
+    };
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({
+      mode: 'fixture',
+      error: 'Live profile lookup is unavailable in fixture mode.',
+    });
+    expect(body.trace).toMatchObject({
+      tool: 'wynncraft.getPublicProfile',
+      mode: 'fixture',
+      cache: 'bypass',
+    });
+    expect(JSON.stringify(body)).not.toContain('SyntheticTester');
+    expect(JSON.stringify(body)).not.toContain('uuid');
+  });
+
+  it('rejects malformed profile names before any live request', async () => {
+    const fetcher = vi.fn(async () => ({
+      status: 200,
+      ok: true,
+      headers: { get: () => null },
+      text: async () => JSON.stringify({ online: true }),
+    }));
+    const client = createWynncraftClient({ fetch: fetcher as never });
+    const baseUrl = await start({ mode: 'live', client });
+
+    const response = await fetch(`${baseUrl}/api/profile/not%20a%20valid%20name`);
+    const body = await response.text();
+
+    expect(response.status).toBe(400);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(body).not.toContain('not a valid name');
+  });
+
+  it('returns an identity-free normalized profile summary in live mode', async () => {
+    const rawIdentifier = 'synthetic-server-private-marker';
+    const fetcher = vi.fn(async (url: string) => {
+      expect(url).toBe('https://api.wynncraft.com/v3/player/SyntheticTester');
+      return {
+        status: 200,
+        ok: true,
+        headers: {
+          get: (name: string) =>
+            ({ version: 'v3.7.2', 'x-ratelimit-remaining': '49' })[name.toLowerCase()] ?? null,
+        },
+        text: async () =>
+          JSON.stringify({
+            username: 'SyntheticTester',
+            online: true,
+            uuid: rawIdentifier,
+            characters: { [rawIdentifier]: { id: rawIdentifier } },
+            restrictions: { characterDataAccess: 'public' },
+            guild: { name: 'synthetic-server-unreturned-field' },
+          }),
+      };
+    });
+    const client = createWynncraftClient({ fetch: fetcher as never });
+    const baseUrl = await start({ mode: 'live', client });
+
+    const response = await fetch(`${baseUrl}/api/profile/SyntheticTester`);
+    const body = (await response.json()) as Record<string, unknown> & {
+      data?: Record<string, unknown>;
+      trace?: Record<string, unknown> & { metadata?: Record<string, unknown> };
+    };
+
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({ mode: 'fixture' });
-    expect(JSON.stringify(body)).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/i);
+    expect(body.data).toEqual({
+      status: 'public',
+      online: true,
+      characterCount: 1,
+      characterData: 'available',
+    });
+    expect(body.trace).toMatchObject({
+      tool: 'wynncraft.getPublicProfile',
+      mode: 'live',
+      cache: 'bypass',
+      metadata: { version: 'v3.7.2' },
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('SyntheticTester');
+    expect(serialized).not.toContain(rawIdentifier);
+    expect(serialized).not.toContain('synthetic-server-unreturned-field');
   });
 
   it('rejects malformed and oversized recommendation requests', async () => {

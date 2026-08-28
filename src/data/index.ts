@@ -6,7 +6,6 @@ export {
   MAX_TIMEOUT_MS,
 } from './wynncraft.js';
 export type {
-  PublicProfileOptions,
   ToolOutcome,
   ToolTrace,
   ToolTraceMetadata,

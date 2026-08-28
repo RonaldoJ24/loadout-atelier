@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createDeepSeekProvider } from '../src/ai/deepseek.js';
 import { explainRecommendation } from '../src/ai/recommendation.js';
 import { createWynncraftClient } from '../src/data/wynncraft.js';
-import type { ToolOutcome, WynncraftClient } from '../src/data/types.js';
+import type { ToolOutcome, ToolTrace, WynncraftClient } from '../src/data/types.js';
 import type { DeepSeekProvider } from '../src/ai/types.js';
 import type { RecommendationResult, VersionedDataset } from '../src/domain/contracts.js';
 
@@ -32,7 +32,7 @@ export type ServerOptions = {
 const DEFAULT_PORT = 4317;
 const DEFAULT_BASE_URL = 'https://api.wynncraft.com/v3';
 const DEFAULT_MODEL = 'deepseek-v4-flash';
-const MAX_SELECTOR_LENGTH = 128;
+const MINECRAFT_PLAYER_NAME_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -65,18 +65,10 @@ const localOrigin = (origin: string): boolean => {
   }
 };
 
-const selectorSafe = (selector: string): boolean => {
-  const hasControlCharacter = [...selector].some((character) => {
-    const code = character.charCodeAt(0);
-    return code < 32 || code === 127;
-  });
-  const hasPathDelimiter = ['/', '\\', '?', '#'].some((character) => selector.includes(character));
-  return (
-    selector.length > 0 &&
-    selector.length <= MAX_SELECTOR_LENGTH &&
-    !hasControlCharacter &&
-    !hasPathDelimiter
-  );
+const normalizePlayerName = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return MINECRAFT_PLAYER_NAME_PATTERN.test(normalized) ? normalized : undefined;
 };
 
 const outcomeStatus = (error: string): number => {
@@ -101,11 +93,16 @@ const sendOutcome = <T>(res: Response, mode: ServerMode, outcome: ToolOutcome<T>
   res.status(200).json({ mode, data: outcome.data, trace: outcome.trace });
 };
 
-const fixtureProfile = (): Record<string, unknown> => ({
-  username: 'fixture-player',
-  online: false,
-  restrictions: {},
-  source: 'synthetic fixture',
+const fixtureProfileUnavailableTrace = (): ToolTrace => ({
+  id: 'wynncraft-profile-fixture',
+  tool: 'wynncraft.getPublicProfile',
+  status: 'fallback',
+  mode: 'fixture',
+  startedAt: new Date().toISOString(),
+  durationMs: 0,
+  sourceIds: ['wynncraft-api'],
+  message: 'live profile lookup is unavailable in fixture mode',
+  cache: 'bypass',
 });
 
 const safeErrorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
@@ -162,19 +159,25 @@ export const createApp = (options: ServerOptions = {}): express.Express => {
     });
   });
 
-  app.get('/api/profile/:selector', async (request: Request, response: Response) => {
-    const selectorValue = request.params.selector;
-    const selector = typeof selectorValue === 'string' ? selectorValue : '';
-    if (!selectorSafe(selector)) {
-      response.status(400).json({ error: 'Profile selector must be a safe username or UUID.' });
+  app.get('/api/profile/:playerName', async (request: Request, response: Response) => {
+    const playerName = normalizePlayerName(request.params.playerName);
+    if (!playerName) {
+      response.status(400).json({
+        error:
+          'Profile name must be a trimmed Minecraft username (1-16 letters, numbers, or underscores).',
+      });
       return;
     }
     if (mode === 'fixture') {
-      response.json({ mode, data: fixtureProfile() });
+      response.status(503).json({
+        mode,
+        error: 'Live profile lookup is unavailable in fixture mode.',
+        trace: fixtureProfileUnavailableTrace(),
+      });
       return;
     }
     try {
-      const outcome = await client.getPublicProfile(selector);
+      const outcome = await client.getPublicProfile(playerName);
       sendOutcome(response, mode, outcome);
     } catch {
       response.status(502).json({ error: 'Profile service is temporarily unavailable.' });

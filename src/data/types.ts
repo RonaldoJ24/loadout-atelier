@@ -21,7 +21,7 @@ export type ToolTraceMetadata = {
 export type ToolTrace = Omit<DomainToolTrace, 'mode'> & {
   mode: SourceMode | 'provider';
   metadata?: ToolTraceMetadata;
-  cache?: 'hit' | 'miss';
+  cache?: 'hit' | 'miss' | 'bypass';
 };
 
 /**
@@ -41,7 +41,17 @@ export type ToolOutcome<T> =
       trace: ToolTrace;
     };
 
-export type WynncraftPublicProfile = Record<string, unknown>;
+/**
+ * Privacy-safe profile summary. The player name and all account/character
+ * identifiers are intentionally absent; the server may use the name only for
+ * the transient upstream request.
+ */
+export type WynncraftPublicProfile = {
+  status: 'public' | 'partial';
+  online: boolean | null;
+  characterCount: number | null;
+  characterData: 'available' | 'restricted' | 'unknown';
+};
 export type WynncraftCharacter = Record<string, unknown>;
 export type WynncraftCharacterAbilities = Record<string, unknown>;
 export type WynncraftAbilityTree = Record<string, unknown>;
@@ -63,16 +73,8 @@ export type WynncraftClientOptions = {
   now?: () => number;
 };
 
-export type PublicProfileOptions = {
-  /** The API recognizes a presence-only `?fullResult` flag. */
-  fullResult?: boolean;
-};
-
 export type WynncraftClient = {
-  getPublicProfile(
-    selector: string,
-    options?: PublicProfileOptions,
-  ): Promise<ToolOutcome<WynncraftPublicProfile>>;
+  getPublicProfile(playerName: string): Promise<ToolOutcome<WynncraftPublicProfile>>;
   getCharacter(selector: string, characterId: string): Promise<ToolOutcome<WynncraftCharacter>>;
   getCharacterAbilities(
     selector: string,

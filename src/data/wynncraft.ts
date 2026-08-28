@@ -31,6 +31,7 @@ const DEFAULT_CACHE_TTL_MS: Record<WynncraftCacheRoute, number> = {
 };
 
 const SOURCE_ID = 'wynncraft-api';
+const MINECRAFT_PLAYER_NAME_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
 
 type CacheEntry = {
   value: unknown;
@@ -134,6 +135,12 @@ const selectorIsSafe = (value: string): boolean => {
   return value.length > 0 && value.length <= 128 && !hasControlCharacter && !hasPathDelimiter;
 };
 
+const normalizePlayerName = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return MINECRAFT_PLAYER_NAME_PATTERN.test(normalized) ? normalized : undefined;
+};
+
 const isLoopbackHostname = (hostname: string): boolean =>
   ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname.toLowerCase());
 
@@ -183,15 +190,20 @@ const makeTrace = (
   ...(cache ? { cache } : {}),
 });
 
-const invalidArgument = <T>(tool: string, startedAt: number, message: string): ToolOutcome<T> => ({
+const invalidArgument = <T>(
+  tool: string,
+  startedAt: number,
+  message: string,
+  cache: ToolTrace['cache'] = 'miss',
+): ToolOutcome<T> => ({
   ok: false,
   error: message,
-  trace: makeTrace(tool, 'error', startedAt, message),
+  trace: makeTrace(tool, 'error', startedAt, message, 'live', undefined, cache),
 });
 
 const classifyHttpError = (status: number): string => {
   if (status === 300) {
-    return 'Wynncraft returned 300 MultipleObjectsReturned; use a UUID selector.';
+    return 'Wynncraft returned 300 MultipleObjectsReturned; the player name is ambiguous.';
   }
   if (status === 400) return 'Wynncraft rejected the request (400 Bad Request).';
   if (status === 401) return 'Wynncraft rejected the request (401 Unauthorized).';
@@ -218,9 +230,13 @@ const hasRestrictedFields = (value: unknown): boolean => {
 
 const readablePayload = <T>(
   payload: unknown,
-  isValid: (value: unknown) => value is T,
+  isValid: (value: unknown) => boolean,
+  transform?: (value: unknown) => T | undefined,
 ): { value?: T; error?: string } => {
-  if (isValid(payload)) return { value: payload };
+  if (isValid(payload)) {
+    const value = transform ? transform(payload) : payload;
+    if (value !== undefined) return { value: value as T };
+  }
   return { error: 'Wynncraft returned an incomplete or invalid JSON payload.' };
 };
 
@@ -260,6 +276,63 @@ const readJsonBounded = async (response: ResponseLike, maximumBytes: number): Pr
 
 const asObject = (value: unknown): value is Record<string, unknown> =>
   isRecord(value) && Object.keys(value).length > 0;
+
+const restrictionIsPrivate = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value.toLowerCase() !== 'public';
+  return value != null;
+};
+
+const normalizePublicProfile = (payload: unknown): WynncraftPublicProfile | undefined => {
+  if (!asObject(payload)) return undefined;
+
+  const hasOnline = Object.prototype.hasOwnProperty.call(payload, 'online');
+  if (hasOnline && typeof payload.online !== 'boolean' && payload.online !== null) {
+    return undefined;
+  }
+  const online = typeof payload.online === 'boolean' ? payload.online : null;
+
+  const hasCharacters = Object.prototype.hasOwnProperty.call(payload, 'characters');
+  const characters = payload.characters;
+  if (
+    hasCharacters &&
+    characters !== null &&
+    characters !== undefined &&
+    !Array.isArray(characters) &&
+    !isRecord(characters)
+  ) {
+    return undefined;
+  }
+
+  const restrictions = payload.restrictions;
+  if (restrictions !== undefined && !isRecord(restrictions)) return undefined;
+  const restrictionEntries = restrictions ? Object.entries(restrictions) : [];
+  const hasPrivateFields = restrictionEntries.some(([, value]) => restrictionIsPrivate(value));
+  const characterRestricted = restrictionEntries.some(
+    ([key, value]) => /character/i.test(key) && restrictionIsPrivate(value),
+  );
+
+  // An identifier-only or otherwise unrelated object is not a usable profile
+  // response. It must fail closed instead of being converted into an empty
+  // summary.
+  if (!hasOnline && !hasCharacters && restrictions === undefined) return undefined;
+
+  let characterData: WynncraftPublicProfile['characterData'] = 'unknown';
+  let characterCount: number | null = null;
+  if (characterRestricted) {
+    characterData = 'restricted';
+  } else if (Array.isArray(characters)) {
+    characterData = 'available';
+    characterCount = characters.length;
+  } else if (isRecord(characters)) {
+    characterData = 'available';
+    characterCount = Object.keys(characters).length;
+  }
+
+  const status: WynncraftPublicProfile['status'] =
+    hasPrivateFields || online === null || characterData !== 'available' ? 'partial' : 'public';
+  return { status, online, characterCount, characterData };
+};
 
 const asItem = (value: unknown): value is WynncraftItem =>
   isRecord(value) &&
@@ -365,19 +438,21 @@ export const createWynncraftClient = (options: WynncraftClientOptions = {}): Wyn
     route: WynncraftCacheRoute,
     tool: string,
     path: string,
-    validator: (value: unknown) => value is T,
+    validator: (value: unknown) => boolean,
     key = path,
     cacheResponse = true,
+    transform?: (value: unknown) => T | undefined,
   ): Promise<ToolOutcome<T>> => {
     const startedAt = Date.now();
     const cached = cacheResponse ? readCache<T>(key, route) : undefined;
     if (cached) return cached;
+    const cacheState: ToolTrace['cache'] = cacheResponse ? 'miss' : 'bypass';
 
     if (baseUrlError) {
       return {
         ok: false,
         error: baseUrlError,
-        trace: makeTrace(tool, 'fallback', startedAt, baseUrlError, 'live', undefined, 'miss'),
+        trace: makeTrace(tool, 'fallback', startedAt, baseUrlError, 'live', undefined, cacheState),
       };
     }
     if (typeof fetcher !== 'function') {
@@ -385,7 +460,7 @@ export const createWynncraftClient = (options: WynncraftClientOptions = {}): Wyn
       return {
         ok: false,
         error: message,
-        trace: makeTrace(tool, 'fallback', startedAt, message, 'live', undefined, 'miss'),
+        trace: makeTrace(tool, 'fallback', startedAt, message, 'live', undefined, cacheState),
       };
     }
 
@@ -428,7 +503,7 @@ export const createWynncraftClient = (options: WynncraftClientOptions = {}): Wyn
       return {
         ok: false,
         error: message,
-        trace: makeTrace(tool, 'fallback', startedAt, message, 'live', undefined, 'miss'),
+        trace: makeTrace(tool, 'fallback', startedAt, message, 'live', undefined, cacheState),
       };
     }
 
@@ -439,7 +514,7 @@ export const createWynncraftClient = (options: WynncraftClientOptions = {}): Wyn
       return {
         ok: false,
         error: message,
-        trace: makeTrace(tool, 'error', startedAt, message, 'live', metadata, 'miss'),
+        trace: makeTrace(tool, 'error', startedAt, message, 'live', metadata, cacheState),
       };
     }
 
@@ -469,59 +544,60 @@ export const createWynncraftClient = (options: WynncraftClientOptions = {}): Wyn
           message,
           'live',
           metadata,
-          'miss',
+          cacheState,
         ),
       };
     } finally {
       if (timer) clearTimeout(timer);
     }
-    const checked = readablePayload(payload, validator);
+    const checked = readablePayload(payload, validator, transform);
     if (checked.error) {
       return {
         ok: false,
         error: checked.error,
-        trace: makeTrace(tool, 'error', startedAt, checked.error, 'live', metadata, 'miss'),
+        trace: makeTrace(tool, 'error', startedAt, checked.error, 'live', metadata, cacheState),
       };
     }
     const value = checked.value as T;
     const restricted = hasRestrictedFields(value);
+    const partialProfile = route === 'profile' && isRecord(value) && value.status === 'partial';
     // A restricted response is useful to the direct caller as an explicit
     // partial result, but it must not become shared process state.
     if (cacheResponse && !restricted) writeCache(key, value, route, metadata);
-    const message = restricted ? 'ok; the API reports restricted or incomplete fields' : 'ok';
+    const message =
+      restricted || partialProfile ? 'ok; the API reports restricted or incomplete fields' : 'ok';
     return {
       ok: true,
       data: value,
-      trace: makeTrace(tool, 'ok', startedAt, message, 'live', metadata, 'miss'),
+      trace: makeTrace(tool, 'ok', startedAt, message, 'live', metadata, cacheState),
     };
   };
 
-  const getPublicProfile = (
-    selector: string,
-    profileOptions: { fullResult?: boolean } = {},
-  ): Promise<ToolOutcome<WynncraftPublicProfile>> => {
+  const getPublicProfile = (playerName: string): Promise<ToolOutcome<WynncraftPublicProfile>> => {
     const startedAt = Date.now();
-    if (typeof selector !== 'string' || !selectorIsSafe(selector)) {
+    const normalizedName = normalizePlayerName(playerName);
+    if (!normalizedName) {
       return Promise.resolve(
         invalidArgument(
           'wynncraft.getPublicProfile',
           startedAt,
-          'Profile selector must be a non-empty safe username or UUID.',
+          'Profile name must be a trimmed Minecraft username (letters, numbers, or underscore; 1-16 characters).',
+          'bypass',
         ),
       );
     }
-    const encodedSelector = encodeURIComponent(selector);
-    const suffix = profileOptions.fullResult ? '?fullResult' : '';
-    // Do not cache profiles: profile payloads can contain UUIDs, character
-    // identifiers, and account metadata. They are returned directly but never
-    // retained in process memory or copied into traces.
+    const encodedName = encodeURIComponent(normalizedName);
+    // Do not cache profiles: profile payloads can contain account and
+    // character identifiers. The name is used only to form the transient
+    // upstream request and is never copied to the result or trace.
     return request<WynncraftPublicProfile>(
       'profile',
       'wynncraft.getPublicProfile',
-      `/player/${encodedSelector}${suffix}`,
+      `/player/${encodedName}`,
       asObject,
-      `profile:${encodedSelector}:${profileOptions.fullResult ? 'full' : 'summary'}`,
+      `profile:${encodedName}`,
       false,
+      normalizePublicProfile,
     );
   };
 
@@ -536,6 +612,7 @@ export const createWynncraftClient = (options: WynncraftClientOptions = {}): Wyn
           'wynncraft.getCharacter',
           startedAt,
           'Profile selector must be a non-empty safe username or UUID.',
+          'bypass',
         ),
       );
     }
@@ -545,6 +622,7 @@ export const createWynncraftClient = (options: WynncraftClientOptions = {}): Wyn
           'wynncraft.getCharacter',
           startedAt,
           'Character identifier must be a non-empty safe identifier.',
+          'bypass',
         ),
       );
     }
@@ -570,6 +648,7 @@ export const createWynncraftClient = (options: WynncraftClientOptions = {}): Wyn
           'wynncraft.getCharacterAbilities',
           startedAt,
           'Profile selector must be a non-empty safe username or UUID.',
+          'bypass',
         ),
       );
     }
@@ -579,6 +658,7 @@ export const createWynncraftClient = (options: WynncraftClientOptions = {}): Wyn
           'wynncraft.getCharacterAbilities',
           startedAt,
           'Character identifier must be a non-empty safe identifier.',
+          'bypass',
         ),
       );
     }
