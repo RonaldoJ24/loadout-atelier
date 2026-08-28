@@ -16,7 +16,7 @@ The MVP uses these documented contracts:
 | Item database       | `GET /item/database?fullResult`                      | 1 hour / `ITEMS`                | Local typed tool; the presence-only `fullResult` flag must not be sent as `true` or `false`. |
 | Ability definition  | `GET /ability/tree/{class}`                          | 1 hour / `SHARED`               | Local typed tool for one of five documented classes.                                         |
 
-The API documents independent guest limits of 50 requests per minute for the `SHARED`, `PLAYER`, `GUILD`, `ITEMS`, `LEADERBOARDS`, and `MAP` buckets; authenticated callers receive 120 requests per minute. The product does not require authentication and does not multiply capacity. It records nonsecret version/cache/rate-limit response headers and uses timeouts plus route-aware in-memory caching.
+The API documents independent guest limits of 50 requests per minute for the `SHARED`, `PLAYER`, `GUILD`, `ITEMS`, `LEADERBOARDS`, and `MAP` buckets; authenticated callers receive 120 requests per minute. The product does not require authentication and does not multiply capacity. It records nonsecret version/cache/rate-limit response headers and uses timeouts plus bounded in-memory caching only for shared static item/ability data. Profile, character, and character-ability responses bypass the cache because they may contain personal identifiers.
 
 ## Privacy and permitted use
 

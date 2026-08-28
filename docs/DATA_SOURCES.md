@@ -20,3 +20,5 @@ The fixture intentionally contains unavailable items, class-locked weapons, requ
 ## Official sources
 
 API contract and policy references are listed in [API_RESEARCH.md](API_RESEARCH.md). Each visible source card includes publisher, direct URL, retrieval timestamp, dataset version, mode, and freshness. Wynncraft is a trademark of its respective owner. Loadout Atelier is an unofficial project and is not affiliated with or endorsed by Wynncraft.
+
+The optional explanation adapter targets DeepSeek's official chat-completions API and JSON-output mode. Provider output is untrusted and is not treated as a gameplay data source: it must match the local schema, cite source IDs already supplied by the application, and pass deterministic revalidation. The default model name is configuration, not a claim that any particular model will remain available. Primary references: [chat completion API](https://api-docs.deepseek.com/api/create-chat-completion/) and [JSON output guide](https://api-docs.deepseek.com/guides/json_mode/).
