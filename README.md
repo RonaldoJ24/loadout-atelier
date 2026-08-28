@@ -136,6 +136,7 @@ The release's single live DeepSeek request reached the provider, but its respons
 - The public Pages demo cannot perform live lookups or AI calls because it has no trusted backend.
 - The static-data cache is process memory, not a durable data platform; player and character routes bypass it.
 - The bounded live provider smoke verified fail-closed rejection, not a successful AI recommendation or provider reliability.
+- Provider-prose validation rejects numeric and contradictory recognized-stat claims, but qualitative language outside that vocabulary remains a heuristic boundary rather than a formal semantic proof.
 - Goal scoring is an inspectable MVP heuristic, not an optimizer proof or a substitute for expert playtesting.
 - No market-price source is integrated; fixture `cost` is a synthetic constraint dimension.
 
