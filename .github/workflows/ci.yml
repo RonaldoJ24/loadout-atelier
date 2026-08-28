@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run eval
+      - run: npm run build
+      - run: npm run e2e
+      - run: npm run secret:scan
+      - run: npm audit --audit-level=high
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-artifacts
+          path: |
+            test-results
+            playwright-report
+            outputs/evaluation-report.json
+          if-no-files-found: ignore
+          retention-days: 7
