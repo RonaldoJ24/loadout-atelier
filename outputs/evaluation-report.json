@@ -6,41 +6,13 @@
   "scenarioCount": 34,
   "passedScenarios": 34,
   "metrics": {
-    "schemaValidity": {
-      "numerator": 11,
-      "denominator": 11,
-      "rate": 1
-    },
-    "constraintSatisfaction": {
-      "numerator": 28,
-      "denominator": 28,
-      "rate": 1
-    },
-    "recommendationValidity": {
-      "numerator": 13,
-      "denominator": 13,
-      "rate": 1
-    },
-    "citationCoverage": {
-      "numerator": 4,
-      "denominator": 4,
-      "rate": 1
-    },
-    "correctAbstention": {
-      "numerator": 13,
-      "denominator": 13,
-      "rate": 1
-    },
-    "toolSelectionAccuracy": {
-      "numerator": 34,
-      "denominator": 34,
-      "rate": 1
-    },
-    "regressionStability": {
-      "numerator": 2,
-      "denominator": 2,
-      "rate": 1
-    }
+    "schemaValidity": { "numerator": 11, "denominator": 11, "rate": 1 },
+    "constraintSatisfaction": { "numerator": 28, "denominator": 28, "rate": 1 },
+    "recommendationValidity": { "numerator": 13, "denominator": 13, "rate": 1 },
+    "citationCoverage": { "numerator": 4, "denominator": 4, "rate": 1 },
+    "correctAbstention": { "numerator": 13, "denominator": 13, "rate": 1 },
+    "toolSelectionAccuracy": { "numerator": 34, "denominator": 34, "rate": 1 },
+    "regressionStability": { "numerator": 2, "denominator": 2, "rate": 1 }
   },
   "scenarios": [
     {
@@ -53,10 +25,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Complete build accepted.",
-      "actual": {
-        "valid": true,
-        "cost": 193
-      }
+      "actual": { "valid": true, "cost": 193 }
     },
     {
       "id": "valid-recommendation",
@@ -70,12 +39,7 @@
         "citationCoverage": true
       },
       "summary": "Deterministic recommendation remains valid.",
-      "actual": {
-        "status": "recommended",
-        "citations": [
-          "fixture-method"
-        ]
-      }
+      "actual": { "status": "recommended", "citations": ["fixture-method"] }
     },
     {
       "id": "ring-slot-compatible",
@@ -87,9 +51,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Ring slots are interchangeable.",
-      "actual": {
-        "valid": true
-      }
+      "actual": { "valid": true }
     },
     {
       "id": "missing-equipment",
@@ -101,9 +63,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Missing weapon rejected.",
-      "actual": {
-        "expectedCode": "missing-item"
-      }
+      "actual": { "expectedCode": "missing-item" }
     },
     {
       "id": "unavailable-item",
@@ -115,9 +75,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Unavailable item rejected.",
-      "actual": {
-        "expectedCode": "unavailable-item"
-      }
+      "actual": { "expectedCode": "unavailable-item" }
     },
     {
       "id": "insufficient-level",
@@ -129,9 +87,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Level requirement enforced.",
-      "actual": {
-        "level": 80
-      }
+      "actual": { "level": 80 }
     },
     {
       "id": "assigned-skill-cap",
@@ -143,9 +99,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Assigned skill-point budget enforced.",
-      "actual": {
-        "level": 2
-      }
+      "actual": { "level": 2 }
     },
     {
       "id": "item-skill-requirement",
@@ -157,9 +111,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Item skill requirement enforced.",
-      "actual": {
-        "intelligence": 0
-      }
+      "actual": { "intelligence": 0 }
     },
     {
       "id": "class-requirement",
@@ -171,9 +123,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Class requirement enforced.",
-      "actual": {
-        "itemId": "shadow-knife"
-      }
+      "actual": { "itemId": "shadow-knife" }
     },
     {
       "id": "wrong-slot",
@@ -185,9 +135,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Wrong slot rejected.",
-      "actual": {
-        "expectedCode": "wrong-slot"
-      }
+      "actual": { "expectedCode": "wrong-slot" }
     },
     {
       "id": "duplicate-item",
@@ -199,9 +147,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Duplicate item rejected.",
-      "actual": {
-        "expectedCode": "duplicate-item"
-      }
+      "actual": { "expectedCode": "duplicate-item" }
     },
     {
       "id": "incompatible-items",
@@ -213,9 +159,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Explicit incompatibility enforced.",
-      "actual": {
-        "expectedCode": "incompatible-items"
-      }
+      "actual": { "expectedCode": "incompatible-items" }
     },
     {
       "id": "ability-prerequisite",
@@ -227,9 +171,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Ability prerequisite enforced.",
-      "actual": {
-        "expectedCode": "missing-ability-prerequisite"
-      }
+      "actual": { "expectedCode": "missing-ability-prerequisite" }
     },
     {
       "id": "ability-conflict",
@@ -241,9 +183,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Ability conflict enforced.",
-      "actual": {
-        "expectedCode": "ability-conflict"
-      }
+      "actual": { "expectedCode": "ability-conflict" }
     },
     {
       "id": "ability-point-limit",
@@ -255,9 +195,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Ability-point limit enforced.",
-      "actual": {
-        "expectedCode": "ability-point-limit"
-      }
+      "actual": { "expectedCode": "ability-point-limit" }
     },
     {
       "id": "conflicting-budget-goal",
@@ -271,9 +209,7 @@
         "correctAbstention": true
       },
       "summary": "Impossible budget caused abstention.",
-      "actual": {
-        "status": "abstained"
-      }
+      "actual": { "status": "abstained" }
     },
     {
       "id": "zero-change-limit",
@@ -287,9 +223,7 @@
         "correctAbstention": true
       },
       "summary": "Zero-change constraint caused abstention.",
-      "actual": {
-        "status": "abstained"
-      }
+      "actual": { "status": "abstained" }
     },
     {
       "id": "excluded-items",
@@ -303,9 +237,7 @@
         "citationCoverage": true
       },
       "summary": "Excluded item allowlist respected.",
-      "actual": {
-        "status": "recommended"
-      }
+      "actual": { "status": "recommended" }
     },
     {
       "id": "unavailable-candidate-filter",
@@ -319,13 +251,7 @@
         "citationCoverage": true
       },
       "summary": "Unavailable candidate filtered.",
-      "actual": {
-        "selected": [
-          "chorus-visor",
-          "vanguard-seal",
-          "beacon-torc"
-        ]
-      }
+      "actual": { "selected": ["chorus-visor", "vanguard-seal", "beacon-torc"] }
     },
     {
       "id": "outdated-data",
@@ -339,9 +265,7 @@
         "correctAbstention": true
       },
       "summary": "Stale data caused abstention.",
-      "actual": {
-        "status": "abstained"
-      }
+      "actual": { "status": "abstained" }
     },
     {
       "id": "missing-source",
@@ -355,9 +279,7 @@
         "correctAbstention": true
       },
       "summary": "Missing evidence caused abstention.",
-      "actual": {
-        "status": "abstained"
-      }
+      "actual": { "status": "abstained" }
     },
     {
       "id": "source-disagreement",
@@ -372,19 +294,14 @@
         "correctAbstention": true
       },
       "summary": "Source disagreement caused abstention.",
-      "actual": {
-        "status": "abstained"
-      }
+      "actual": { "status": "abstained" }
     },
     {
       "id": "incomplete-api-response",
       "category": "tool-contract",
       "purpose": "Reject an incomplete item API payload.",
       "passed": true,
-      "checks": {
-        "schemaValidity": true,
-        "toolSelectionAccuracy": true
-      },
+      "checks": { "schemaValidity": true, "toolSelectionAccuracy": true },
       "summary": "Incomplete API payload rejected.",
       "actual": {
         "ok": false,
@@ -402,10 +319,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Restricted profile remained unavailable.",
-      "actual": {
-        "ok": false,
-        "calls": 1
-      }
+      "actual": { "ok": false, "calls": 1 }
     },
     {
       "id": "ambiguous-api-selector",
@@ -418,10 +332,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Ambiguous selector remained unresolved.",
-      "actual": {
-        "ok": false,
-        "calls": 1
-      }
+      "actual": { "ok": false, "calls": 1 }
     },
     {
       "id": "provider-timeout",
@@ -434,10 +345,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Provider timeout failed closed.",
-      "actual": {
-        "ok": false,
-        "calls": 1
-      }
+      "actual": { "ok": false, "calls": 1 }
     },
     {
       "id": "malformed-model-json",
@@ -450,9 +358,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Malformed model JSON rejected.",
-      "actual": {
-        "ok": false
-      }
+      "actual": { "ok": false }
     },
     {
       "id": "malformed-model-schema",
@@ -465,9 +371,7 @@
         "toolSelectionAccuracy": true
       },
       "summary": "Malformed model schema rejected.",
-      "actual": {
-        "ok": false
-      }
+      "actual": { "ok": false }
     },
     {
       "id": "unknown-model-citation",
@@ -482,9 +386,7 @@
         "correctAbstention": true
       },
       "summary": "Unknown citation caused abstention.",
-      "actual": {
-        "status": "abstained"
-      }
+      "actual": { "status": "abstained" }
     },
     {
       "id": "unsupported-model-claim",
@@ -499,9 +401,7 @@
         "correctAbstention": true
       },
       "summary": "Unsupported claim caused abstention.",
-      "actual": {
-        "status": "abstained"
-      }
+      "actual": { "status": "abstained" }
     },
     {
       "id": "prompt-injection-source",
@@ -516,9 +416,7 @@
         "correctAbstention": true
       },
       "summary": "Prompt-injection-like source caused abstention.",
-      "actual": {
-        "status": "abstained"
-      }
+      "actual": { "status": "abstained" }
     },
     {
       "id": "provider-unavailable-fallback",
@@ -533,10 +431,7 @@
         "citationCoverage": true
       },
       "summary": "Provider-unavailable path used fixture fallback.",
-      "actual": {
-        "status": "recommended",
-        "origin": "fixture-fallback"
-      }
+      "actual": { "status": "recommended", "origin": "fixture-fallback" }
     },
     {
       "id": "patch-impact",
@@ -550,12 +445,8 @@
       },
       "summary": "Patch impact matched the reviewed fixture.",
       "actual": {
-        "added": [
-          "beacon-treads"
-        ],
-        "changed": [
-          "chorus-staff"
-        ],
+        "added": ["beacon-treads"],
+        "changed": ["chorus-staff"],
         "removed": []
       }
     },
@@ -571,10 +462,7 @@
         "regressionStability": true
       },
       "summary": "Recommendation is stable under input ordering.",
-      "actual": {
-        "firstStatus": "recommended",
-        "secondStatus": "recommended"
-      }
+      "actual": { "firstStatus": "recommended", "secondStatus": "recommended" }
     }
   ]
 }

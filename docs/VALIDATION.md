@@ -6,18 +6,18 @@ This document records the release-candidate evidence for `0.1.0`. It distinguish
 
 Environment used locally on 2026-08-28: macOS, Node.js `v26.3.1`, npm `11.16.0`, Chromium installed by Playwright.
 
-| Check                                                                         | Result                                                                           |
-| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Prettier format check                                                         | Passed                                                                           |
-| ESLint with zero warnings                                                     | Passed                                                                           |
-| TypeScript project build/type check                                           | Passed                                                                           |
-| Vitest unit, contract, provider, source, server, UI, and evaluation tests     | 51/51 passed across 6 files                                                      |
-| Curated evaluation scenarios                                                  | 34/34 passed; exact metric denominators in [EVALUATIONS.md](EVALUATIONS.md)      |
-| Vite production build                                                         | Passed                                                                           |
-| Playwright happy path, failure, mobile, export, and Axe accessibility checks  | 5/5 passed                                                                       |
-| Package audit at high severity                                                | 0 vulnerabilities                                                                |
-| Secret scan                                                                   | Passed across working tree, built text artifacts, and Git history                |
-| Responsive visual review                                                      | Desktop workspace, comparison, evaluation desk, and 390 px mobile view inspected |
+| Check                                                                        | Result                                                                           |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Prettier format check                                                        | Passed                                                                           |
+| ESLint with zero warnings                                                    | Passed                                                                           |
+| TypeScript project build/type check                                          | Passed                                                                           |
+| Vitest unit, contract, provider, source, server, UI, and evaluation tests    | 51/51 passed across 6 files                                                      |
+| Curated evaluation scenarios                                                 | 34/34 passed; exact metric denominators in [EVALUATIONS.md](EVALUATIONS.md)      |
+| Vite production build                                                        | Passed                                                                           |
+| Playwright happy path, failure, mobile, export, and Axe accessibility checks | 5/5 passed                                                                       |
+| Package audit at high severity                                               | 0 vulnerabilities                                                                |
+| Secret scan                                                                  | Passed across working tree, built text artifacts, and Git history                |
+| Responsive visual review                                                     | Desktop workspace, comparison, evaluation desk, and 390 px mobile view inspected |
 
 Run the reproducible suite with `npm run acceptance`, then run `npm audit --audit-level=high`.
 

@@ -1,11 +1,17 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { format } from 'prettier';
 import { evaluationScenarios, runEvaluationSuite } from '../src/evals/harness';
+
+const writeFormattedJson = async (path: string, value: unknown): Promise<void> => {
+  await mkdir(dirname(path), { recursive: true });
+  const json = await format(JSON.stringify(value), { parser: 'json' });
+  await writeFile(path, json, 'utf8');
+};
 
 const outputPath = join(process.cwd(), 'outputs', 'evaluation-report.json');
 const report = await runEvaluationSuite();
-await mkdir(dirname(outputPath), { recursive: true });
-await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+await writeFormattedJson(outputPath, report);
 
 const metricLines = Object.entries(report.metrics).map(
   ([name, metric]) =>
@@ -25,23 +31,14 @@ if (promoteIndex >= 0) {
     throw new Error('Use --promote <scenario-id> with an existing reviewed scenario.');
   }
   const regressionPath = join(process.cwd(), 'src', 'evals', 'regressions', `${scenarioId}.json`);
-  await mkdir(dirname(regressionPath), { recursive: true });
-  await writeFile(
-    regressionPath,
-    `${JSON.stringify(
-      {
-        id: result.id,
-        category: result.category,
-        purpose: result.purpose,
-        reviewedAt: report.generatedAt,
-        expectedChecks: result.checks,
-        observed: result.actual,
-      },
-      null,
-      2,
-    )}\n`,
-    'utf8',
-  );
+  await writeFormattedJson(regressionPath, {
+    id: result.id,
+    category: result.category,
+    purpose: result.purpose,
+    reviewedAt: report.generatedAt,
+    expectedChecks: result.checks,
+    observed: result.actual,
+  });
   console.log(`Promoted reviewed scenario: ${regressionPath}`);
 }
 
