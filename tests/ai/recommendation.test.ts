@@ -8,6 +8,7 @@ const response = (payload: unknown, status = 200) => ({
   status,
   ok: status >= 200 && status < 300,
   headers: { get: () => null },
+  text: async () => JSON.stringify(payload),
   json: async () => payload,
 });
 
@@ -186,6 +187,82 @@ describe('DeepSeek and recommendation boundaries', () => {
     expect(provider.recommend).not.toHaveBeenCalled();
   });
 
+  it('abstains when a source retrieval time is implausibly in the future', async () => {
+    const future = structuredClone(currentDataset);
+    future.sources = future.sources.map((source) => ({
+      ...source,
+      retrievedAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+    }));
+    const provider = {
+      available: true,
+      model: 'test',
+      complete: vi.fn(),
+      recommend: vi.fn(async () => ({
+        ok: true as const,
+        data: candidate(),
+        trace: providerTrace,
+      })),
+    };
+
+    const result = await explainRecommendation({
+      build: demoBuild,
+      goals: demoGoals,
+      dataset: future,
+      provider,
+    });
+
+    expect(result.status).toBe('abstained');
+    expect(provider.recommend).not.toHaveBeenCalled();
+  });
+
+  it('rejects provider prose that contradicts computed stat changes', async () => {
+    const provider = {
+      available: true,
+      model: 'test',
+      complete: vi.fn(),
+      recommend: vi.fn(async () => ({
+        ok: true as const,
+        data: candidate({ summary: 'This unchanged loadout improves damage.' }),
+        trace: providerTrace,
+      })),
+    };
+
+    const result = await explainRecommendation({
+      build: demoBuild,
+      goals: demoGoals,
+      dataset: currentDataset,
+      provider,
+    });
+
+    expect(result.status).toBe('abstained');
+    expect(result.abstentionReasons.join(' ')).toContain('computed increase');
+  });
+
+  it('rejects numeric claims that were not produced by the deterministic engine', async () => {
+    const provider = {
+      available: true,
+      model: 'test',
+      complete: vi.fn(),
+      recommend: vi.fn(async () => ({
+        ok: true as const,
+        data: candidate({ summary: 'This adds 100 health.' }),
+        trace: providerTrace,
+      })),
+    };
+
+    const result = await explainRecommendation({
+      build: demoBuild,
+      goals: demoGoals,
+      dataset: currentDataset,
+      provider,
+    });
+
+    expect(result.status).toBe('abstained');
+    expect(result.abstentionReasons).toContain(
+      'Provider prose contains an unverified numeric claim.',
+    );
+  });
+
   it('uses a deterministic fixture fallback when the provider is unavailable', async () => {
     const result = await explainRecommendation({ build: demoBuild, goals: demoGoals });
     expect(result.origin).toBe('fixture-fallback');
@@ -266,7 +343,7 @@ describe('DeepSeek and recommendation boundaries', () => {
           status: 200,
           ok: true,
           headers: { get: () => null },
-          json: () => new Promise<never>(() => undefined),
+          text: () => new Promise<never>(() => undefined),
         };
       });
       const provider = createDeepSeekProvider({

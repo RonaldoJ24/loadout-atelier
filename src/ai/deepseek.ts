@@ -32,7 +32,6 @@ type ResponseLike = {
     };
   } | null;
   text?: () => Promise<string>;
-  json?: () => Promise<unknown>;
 };
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<ResponseLike>;
@@ -234,8 +233,7 @@ const readJsonBounded = async (response: ResponseLike, maximumBytes: number): Pr
     }
     return JSON.parse(text);
   }
-  if (typeof response.json === 'function') return response.json();
-  throw new SyntaxError('response has no readable JSON body');
+  throw new SyntaxError('response has no bounded JSON body');
 };
 
 export const createDeepSeekProvider = (options: DeepSeekProviderOptions = {}): DeepSeekProvider => {

@@ -11,10 +11,11 @@ Environment used locally on 2026-08-28: macOS, Node.js `v26.3.1`, npm `11.16.0`,
 | Prettier format check                                                        | Passed                                                                           |
 | ESLint with zero warnings                                                    | Passed                                                                           |
 | TypeScript project build/type check                                          | Passed                                                                           |
-| Vitest unit, contract, provider, source, server, UI, and evaluation tests    | 51/51 passed across 6 files                                                      |
+| Vitest unit, contract, provider, source, server, UI, and evaluation tests    | 54/54 passed across 6 files                                                      |
 | Curated evaluation scenarios                                                 | 34/34 passed; exact metric denominators in [EVALUATIONS.md](EVALUATIONS.md)      |
 | Vite production build                                                        | Passed                                                                           |
 | Playwright happy path, failure, mobile, export, and Axe accessibility checks | 5/5 passed                                                                       |
+| Public Pages deployment replay at the repository subpath                     | 5/5 Playwright checks passed                                                     |
 | Package audit at high severity                                               | 0 vulnerabilities                                                                |
 | Secret scan                                                                  | Passed across working tree, built text artifacts, and Git history                |
 | Responsive visual review                                                     | Desktop workspace, comparison, evaluation desk, and 390 px mobile view inspected |

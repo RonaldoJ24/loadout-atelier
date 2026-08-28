@@ -23,6 +23,7 @@ const textExtensions = new Set([
   '.yml',
 ]);
 const binaryArtifactExtensions = new Set(['.png', '.zip', '.tgz', '.gz']);
+const localEnvFiles = [];
 
 const rules = [
   { label: 'private key material', pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
@@ -43,7 +44,12 @@ function walk(directory) {
     const absolute = join(directory, entry);
     const info = statSync(absolute);
     if (info.isDirectory()) files.push(...walk(absolute));
-    else if (
+    else if (directory === root && /^\.env(?:\.|$)/i.test(entry) && entry !== '.env.example') {
+      // Local env files are expected to contain secrets, so never read them.
+      // Verify below that Git ignores them; staged/history scans still catch
+      // any credential that is accidentally added to version control.
+      localEnvFiles.push(absolute);
+    } else if (
       info.size <= 5_000_000 &&
       (textExtensions.has(extname(entry)) || binaryArtifactExtensions.has(extname(entry)))
     )
@@ -59,6 +65,16 @@ function inspect(label, content, findings) {
 }
 
 const findings = [];
+for (const file of localEnvFiles) {
+  try {
+    execFileSync('git', ['check-ignore', '--quiet', '--', file], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+  } catch {
+    findings.push(`${relative(root, file)}: local environment file is not ignored`);
+  }
+}
 for (const file of walk(root)) {
   const extension = extname(file);
   const encoding = textExtensions.has(extension) ? 'utf8' : 'latin1';
