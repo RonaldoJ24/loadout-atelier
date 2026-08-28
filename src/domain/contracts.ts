@@ -79,6 +79,13 @@ export type VersionedDataset = {
   items: GameItem[];
   abilities: AbilityNode[];
   sources: SourceCard[];
+  rules: {
+    maxLevel: number;
+    skillPointsPerLevel: number;
+    maxAssignedSkillPoints: number;
+    abilityPointMilestones: number[];
+    staleAfterDays: number;
+  };
 };
 
 export type Build = {
