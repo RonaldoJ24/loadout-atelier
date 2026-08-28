@@ -305,7 +305,7 @@
       "summary": "Incomplete API payload rejected.",
       "actual": {
         "ok": false,
-        "message": "Wynncraft returned an incomplete or invalid JSON payload."
+        "message": "Wynncraft returned an invalid JSON payload."
       }
     },
     {
