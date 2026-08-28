@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.cache/
+.DS_Store
+*.log
+
+# Secrets and local provider configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local runtime state and exports
+.loadout-atelier/
+exports/
+
