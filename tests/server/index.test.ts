@@ -46,7 +46,11 @@ describe('local service contract', () => {
 
   it('reports profile lookup as unavailable in fixture mode without synthetic data', async () => {
     const baseUrl = await start();
-    const response = await fetch(`${baseUrl}/api/profile/SyntheticTester`);
+    const response = await fetch(`${baseUrl}/api/profile`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ playerName: 'SyntheticTester' }),
+    });
     const body = (await response.json()) as Record<string, unknown> & {
       trace?: Record<string, unknown>;
     };
@@ -74,7 +78,11 @@ describe('local service contract', () => {
     const client = createWynncraftClient({ fetch: fetcher as never });
     const baseUrl = await start({ mode: 'live', client });
 
-    const response = await fetch(`${baseUrl}/api/profile/not%20a%20valid%20name`);
+    const response = await fetch(`${baseUrl}/api/profile`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ playerName: 'not a valid name' }),
+    });
     const body = await response.text();
 
     expect(response.status).toBe(400);
@@ -107,7 +115,11 @@ describe('local service contract', () => {
     const client = createWynncraftClient({ fetch: fetcher as never });
     const baseUrl = await start({ mode: 'live', client });
 
-    const response = await fetch(`${baseUrl}/api/profile/SyntheticTester`);
+    const response = await fetch(`${baseUrl}/api/profile`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ playerName: 'SyntheticTester' }),
+    });
     const body = (await response.json()) as Record<string, unknown> & {
       data?: Record<string, unknown>;
       trace?: Record<string, unknown> & { metadata?: Record<string, unknown> };

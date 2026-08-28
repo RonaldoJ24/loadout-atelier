@@ -159,8 +159,13 @@ export const createApp = (options: ServerOptions = {}): express.Express => {
     });
   });
 
-  app.get('/api/profile/:playerName', async (request: Request, response: Response) => {
-    const playerName = normalizePlayerName(request.params.playerName);
+  app.post('/api/profile', async (request: Request, response: Response) => {
+    const playerName =
+      isRecord(request.body) &&
+      Object.keys(request.body).length === 1 &&
+      Object.prototype.hasOwnProperty.call(request.body, 'playerName')
+        ? normalizePlayerName(request.body.playerName)
+        : undefined;
     if (!playerName) {
       response.status(400).json({
         error:

@@ -15,6 +15,8 @@ test('happy path: inspect the seeded build and generate a recommendation', async
 
 test('workspace has no automatically detectable accessibility violations', async ({ page }) => {
   await page.goto('./');
+  await page.getByRole('button', { name: 'Import public profile' }).click();
+  await expect(page.getByLabel('Public player name')).toBeVisible();
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 });
@@ -61,6 +63,40 @@ test('failure path: missing equipment is surfaced and local evaluation can repla
   await expect(page.getByText('Missing weapon rejected.')).toBeVisible();
   await expect(page.getByText(/not a claim about production accuracy/i)).toBeVisible();
 
-  await page.getByRole('button', { name: /Run all 34 release cases/i }).click();
-  await expect(page.getByText('34/34 scenarios passed')).toBeVisible();
+  const scenarioCount = await page.locator('.scenario-card').count();
+  await page.getByRole('button', { name: /Run all \d+ release cases/i }).click();
+  await expect(page.getByText(`${scenarioCount}/${scenarioCount} scenarios passed`)).toBeVisible();
+});
+
+test('production host keeps public profile fixture-only and identity-free', async ({ page }) => {
+  const productionBaseUrl = process.env.PLAYWRIGHT_PRODUCTION_BASE_URL;
+  test.skip(
+    !productionBaseUrl,
+    'Set PLAYWRIGHT_PRODUCTION_BASE_URL to exercise the deployed production host.',
+  );
+
+  let profileRequests = 0;
+  await page.route('**/api/profile', async (route) => {
+    profileRequests += 1;
+    await route.abort();
+  });
+  await page.goto(productionBaseUrl!);
+  await page.getByRole('button', { name: 'Import public profile' }).click();
+  await page.getByLabel('Public player name').fill('Example_1');
+  await page.getByRole('form', { name: 'Import public profile' }).evaluate((form) => {
+    (form as HTMLFormElement).requestSubmit();
+  });
+  await expect(page.getByText('Fixture-only mode')).toBeVisible();
+  expect(profileRequests).toBe(0);
+  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('Example_1');
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: /Export build summary/i }).click();
+  const download = await downloadPromise;
+  const stream = await download.createReadStream();
+  let exported = '';
+  if (stream) {
+    for await (const chunk of stream) exported += chunk.toString();
+  }
+  expect(exported).not.toContain('Example_1');
 });
