@@ -218,6 +218,32 @@ export const evaluationScenarios: EvaluationScenario[] = [
     },
   },
   {
+    id: 'manual-unavailable-no-invention',
+    category: 'availability',
+    purpose: 'Abstain rather than invent a replacement for unavailable manual gear.',
+    run: () => {
+      const build = copyBuild();
+      build.equipment.ring1 = 'closed-beta-band';
+      const result = recommendDeterministically(build, demoGoals, currentDataset);
+      const proposedItemIds = (result.candidate?.equipmentChanges ?? [])
+        .map((change) => change.toItemId)
+        .filter((id): id is string => typeof id === 'string');
+      const knownItemIds = new Set(currentDataset.items.map((item) => item.id));
+      const safeAbstention =
+        result.status === 'abstained' &&
+        result.candidate === undefined &&
+        result.proposedBuild === undefined &&
+        result.citationIds.length === 0 &&
+        proposedItemIds.every((id) => knownItemIds.has(id));
+      return deterministicObservation(
+        'Unavailable manual gear caused a safe abstention without an invented replacement.',
+        safeAbstention,
+        { status: result.status, proposedItemIds },
+        recommendationChecks(result, 'abstained'),
+      );
+    },
+  },
+  {
     id: 'insufficient-level',
     category: 'requirements',
     purpose: 'Reject equipment above the character level.',
@@ -327,6 +353,48 @@ export const evaluationScenarios: EvaluationScenario[] = [
     },
   },
   {
+    id: 'mixed-invalid-build',
+    category: 'invalid-build',
+    purpose: 'Reject one synthetic build with mixed requirement and compatibility violations.',
+    run: () => {
+      const dataset = copyDataset();
+      dataset.items = dataset.items.map((item) =>
+        item.id === 'trailplate' ? { ...item, incompatibleWith: ['wayfarer-weave'] } : item,
+      );
+      const build = copyBuild();
+      build.level = 80;
+      build.classId = 'warrior';
+      build.skillPoints = {
+        strength: 0,
+        dexterity: 0,
+        intelligence: 0,
+        defense: 0,
+        agility: 0,
+      };
+      build.equipment.bracelet = 'runed-catalyst';
+      build.equipment.weapon = 'shadow-knife';
+      build.equipment.ring2 = build.equipment.ring1;
+      const validation = validateBuild(build, dataset);
+      const codes = new Set(validation.issues.map((issue) => issue.code));
+      const expectedCodes = [
+        'level-requirement',
+        'skill-requirement',
+        'class-requirement',
+        'wrong-slot',
+        'duplicate-item',
+        'incompatible-items',
+      ] as const;
+      const recommendation = recommendDeterministically(build, demoGoals, dataset);
+      const allViolationsReported = expectedCodes.every((code) => codes.has(code));
+      return deterministicObservation(
+        'Mixed level, skill, class, slot, duplicate, and incompatibility violations were rejected.',
+        !validation.valid && allViolationsReported && recommendation.status === 'abstained',
+        { status: recommendation.status, codes: [...codes].sort() },
+        recommendationChecks(recommendation, 'abstained'),
+      );
+    },
+  },
+  {
     id: 'ability-prerequisite',
     category: 'ability-tree',
     purpose: 'Reject an ability without its prerequisite path.',
@@ -366,6 +434,31 @@ export const evaluationScenarios: EvaluationScenario[] = [
         'Ability-point limit enforced.',
         hasCode(build, 'ability-point-limit'),
         { expectedCode: 'ability-point-limit' },
+      );
+    },
+  },
+  {
+    id: 'ability-gates-combined',
+    category: 'ability-tree',
+    purpose: 'Reject a synthetic ability selection that violates all graph gates together.',
+    run: () => {
+      const build = copyBuild();
+      build.level = 1;
+      build.abilities = ['ward-bloom', 'glass-focus'];
+      const validation = validateBuild(build, currentDataset);
+      const codes = new Set(validation.issues.map((issue) => issue.code));
+      const expectedCodes = [
+        'missing-ability-prerequisite',
+        'ability-conflict',
+        'ability-point-limit',
+      ] as const;
+      const recommendation = recommendDeterministically(build, demoGoals, currentDataset);
+      const allGatesReported = expectedCodes.every((code) => codes.has(code));
+      return deterministicObservation(
+        'Ability prerequisites, conflicts, and point budget were enforced together.',
+        !validation.valid && allGatesReported && recommendation.status === 'abstained',
+        { status: recommendation.status, codes: [...codes].sort() },
+        recommendationChecks(recommendation, 'abstained'),
       );
     },
   },
@@ -454,6 +547,28 @@ export const evaluationScenarios: EvaluationScenario[] = [
         result.status === 'abstained',
         { status: result.status },
         recommendationChecks(result, 'abstained'),
+      );
+    },
+  },
+  {
+    id: 'stale-source-abstention',
+    category: 'evidence',
+    purpose: 'Abstain when the source for synthetic records is stale.',
+    run: () => {
+      const dataset = copyDataset();
+      dataset.sources = dataset.sources.map((source) =>
+        source.id === 'fixture-method' ? { ...source, freshness: 'stale' } : source,
+      );
+      const validation = validateBuild(demoBuild, dataset);
+      const recommendation = recommendDeterministically(demoBuild, demoGoals, dataset);
+      const staleWarning = validation.issues.some(
+        (issue) => issue.code === 'stale-dataset' && issue.sourceId === 'fixture-method',
+      );
+      return deterministicObservation(
+        'Stale synthetic evidence caused a deterministic abstention.',
+        staleWarning && recommendation.status === 'abstained',
+        { status: recommendation.status, staleWarning },
+        recommendationChecks(recommendation, 'abstained'),
       );
     },
   },
@@ -753,6 +868,38 @@ export const evaluationScenarios: EvaluationScenario[] = [
     },
   },
   {
+    id: 'patch-invalidates-selected-item',
+    category: 'patch-regression',
+    purpose: 'Mark a build invalid when a selected item disappears in the next fixture version.',
+    run: () => {
+      const next = copyDataset();
+      next.version = 'fixture-next';
+      next.items = next.items.filter((item) => item.id !== 'field-cap');
+      const result = compareVersions(demoBuild, currentDataset, next);
+      const stable =
+        result.before.valid &&
+        !result.after.valid &&
+        result.addedItemIds.length === 0 &&
+        result.changedItemIds.length === 0 &&
+        result.removedItemIds.join(',') === 'field-cap' &&
+        result.after.issues.some(
+          (issue) => issue.code === 'missing-item' && issue.path === 'equipment.helmet',
+        );
+      return deterministicObservation(
+        'Selected-item removal was surfaced in the after-version validation.',
+        stable,
+        {
+          beforeValid: result.before.valid,
+          afterValid: result.after.valid,
+          added: result.addedItemIds,
+          changed: result.changedItemIds,
+          removed: result.removedItemIds,
+        },
+        { regressionStability: stable },
+      );
+    },
+  },
+  {
     id: 'reordered-dataset-regression',
     category: 'patch-regression',
     purpose: 'Produce the same result when source arrays are reordered.',
@@ -769,6 +916,31 @@ export const evaluationScenarios: EvaluationScenario[] = [
         stable,
         { firstStatus: first.status, secondStatus: second.status },
         { recommendationValidity: stable, regressionStability: stable },
+      );
+    },
+  },
+  {
+    id: 'reordered-build-regression',
+    category: 'patch-regression',
+    purpose: 'Keep validation stable when build and dataset input order changes.',
+    run: () => {
+      const reorderedBuild = copyBuild();
+      reorderedBuild.abilities = [...reorderedBuild.abilities].reverse();
+      reorderedBuild.equipment = Object.fromEntries(
+        Object.entries(reorderedBuild.equipment).reverse(),
+      ) as Build['equipment'];
+      const reorderedDataset = copyDataset();
+      reorderedDataset.items.reverse();
+      reorderedDataset.abilities.reverse();
+      reorderedDataset.sources.reverse();
+      const first = validateBuild(demoBuild, currentDataset);
+      const second = validateBuild(reorderedBuild, reorderedDataset);
+      const stable = JSON.stringify(first) === JSON.stringify(second);
+      return deterministicObservation(
+        'Validation is stable under build and dataset permutations.',
+        stable,
+        { stable, issueCount: first.issues.length },
+        { regressionStability: stable },
       );
     },
   },

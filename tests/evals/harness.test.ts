@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { EVALUATION_METRICS, evaluationScenarios, runEvaluationSuite } from '../../src/evals';
 
 describe('curated evaluation harness', () => {
-  it('contains all 34 uniquely named scenarios covering required failure classes', () => {
-    expect(evaluationScenarios.length).toBe(34);
+  it('contains all 40 uniquely named scenarios covering required failure classes', () => {
+    expect(evaluationScenarios.length).toBe(40);
     expect(new Set(evaluationScenarios.map((scenario) => scenario.id)).size).toBe(
       evaluationScenarios.length,
     );

@@ -3,16 +3,16 @@
   "datasetVersion": "fixture-2026.08",
   "generatedAt": "2026-08-28T19:32:28.000Z",
   "disclaimer": "Curated synthetic regression results describe only these scenarios; they are not production or live-game accuracy measurements.",
-  "scenarioCount": 34,
-  "passedScenarios": 34,
+  "scenarioCount": 40,
+  "passedScenarios": 40,
   "metrics": {
     "schemaValidity": { "numerator": 11, "denominator": 11, "rate": 1 },
-    "constraintSatisfaction": { "numerator": 28, "denominator": 28, "rate": 1 },
-    "recommendationValidity": { "numerator": 13, "denominator": 13, "rate": 1 },
+    "constraintSatisfaction": { "numerator": 34, "denominator": 34, "rate": 1 },
+    "recommendationValidity": { "numerator": 17, "denominator": 17, "rate": 1 },
     "citationCoverage": { "numerator": 4, "denominator": 4, "rate": 1 },
-    "correctAbstention": { "numerator": 13, "denominator": 13, "rate": 1 },
-    "toolSelectionAccuracy": { "numerator": 34, "denominator": 34, "rate": 1 },
-    "regressionStability": { "numerator": 2, "denominator": 2, "rate": 1 }
+    "correctAbstention": { "numerator": 17, "denominator": 17, "rate": 1 },
+    "toolSelectionAccuracy": { "numerator": 40, "denominator": 40, "rate": 1 },
+    "regressionStability": { "numerator": 4, "denominator": 4, "rate": 1 }
   },
   "scenarios": [
     {
@@ -76,6 +76,20 @@
       },
       "summary": "Unavailable item rejected.",
       "actual": { "expectedCode": "unavailable-item" }
+    },
+    {
+      "id": "manual-unavailable-no-invention",
+      "category": "availability",
+      "purpose": "Abstain rather than invent a replacement for unavailable manual gear.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "recommendationValidity": true,
+        "correctAbstention": true
+      },
+      "summary": "Unavailable manual gear caused a safe abstention without an invented replacement.",
+      "actual": { "status": "abstained", "proposedItemIds": [] }
     },
     {
       "id": "insufficient-level",
@@ -162,6 +176,30 @@
       "actual": { "expectedCode": "incompatible-items" }
     },
     {
+      "id": "mixed-invalid-build",
+      "category": "invalid-build",
+      "purpose": "Reject one synthetic build with mixed requirement and compatibility violations.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "recommendationValidity": true,
+        "correctAbstention": true
+      },
+      "summary": "Mixed level, skill, class, slot, duplicate, and incompatibility violations were rejected.",
+      "actual": {
+        "status": "abstained",
+        "codes": [
+          "class-requirement",
+          "duplicate-item",
+          "incompatible-items",
+          "level-requirement",
+          "skill-requirement",
+          "wrong-slot"
+        ]
+      }
+    },
+    {
       "id": "ability-prerequisite",
       "category": "ability-tree",
       "purpose": "Reject an ability without its prerequisite path.",
@@ -196,6 +234,29 @@
       },
       "summary": "Ability-point limit enforced.",
       "actual": { "expectedCode": "ability-point-limit" }
+    },
+    {
+      "id": "ability-gates-combined",
+      "category": "ability-tree",
+      "purpose": "Reject a synthetic ability selection that violates all graph gates together.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "recommendationValidity": true,
+        "correctAbstention": true
+      },
+      "summary": "Ability prerequisites, conflicts, and point budget were enforced together.",
+      "actual": {
+        "status": "abstained",
+        "codes": [
+          "ability-conflict",
+          "ability-point-limit",
+          "level-requirement",
+          "missing-ability-prerequisite",
+          "skill-requirement"
+        ]
+      }
     },
     {
       "id": "conflicting-budget-goal",
@@ -266,6 +327,20 @@
       },
       "summary": "Stale data caused abstention.",
       "actual": { "status": "abstained" }
+    },
+    {
+      "id": "stale-source-abstention",
+      "category": "evidence",
+      "purpose": "Abstain when the source for synthetic records is stale.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "recommendationValidity": true,
+        "correctAbstention": true
+      },
+      "summary": "Stale synthetic evidence caused a deterministic abstention.",
+      "actual": { "status": "abstained", "staleWarning": true }
     },
     {
       "id": "missing-source",
@@ -451,6 +526,25 @@
       }
     },
     {
+      "id": "patch-invalidates-selected-item",
+      "category": "patch-regression",
+      "purpose": "Mark a build invalid when a selected item disappears in the next fixture version.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "regressionStability": true
+      },
+      "summary": "Selected-item removal was surfaced in the after-version validation.",
+      "actual": {
+        "beforeValid": true,
+        "afterValid": false,
+        "added": [],
+        "changed": [],
+        "removed": ["field-cap"]
+      }
+    },
+    {
       "id": "reordered-dataset-regression",
       "category": "patch-regression",
       "purpose": "Produce the same result when source arrays are reordered.",
@@ -463,6 +557,19 @@
       },
       "summary": "Recommendation is stable under input ordering.",
       "actual": { "firstStatus": "recommended", "secondStatus": "recommended" }
+    },
+    {
+      "id": "reordered-build-regression",
+      "category": "patch-regression",
+      "purpose": "Keep validation stable when build and dataset input order changes.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "regressionStability": true
+      },
+      "summary": "Validation is stable under build and dataset permutations.",
+      "actual": { "stable": true, "issueCount": 0 }
     }
   ]
 }
