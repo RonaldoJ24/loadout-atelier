@@ -1,0 +1,580 @@
+{
+  "suite": "loadout-atelier-curated-v1",
+  "datasetVersion": "fixture-2026.08",
+  "generatedAt": "2026-08-28T19:32:28.000Z",
+  "disclaimer": "Curated synthetic regression results describe only these scenarios; they are not production or live-game accuracy measurements.",
+  "scenarioCount": 34,
+  "passedScenarios": 34,
+  "metrics": {
+    "schemaValidity": {
+      "numerator": 11,
+      "denominator": 11,
+      "rate": 1
+    },
+    "constraintSatisfaction": {
+      "numerator": 28,
+      "denominator": 28,
+      "rate": 1
+    },
+    "recommendationValidity": {
+      "numerator": 13,
+      "denominator": 13,
+      "rate": 1
+    },
+    "citationCoverage": {
+      "numerator": 4,
+      "denominator": 4,
+      "rate": 1
+    },
+    "correctAbstention": {
+      "numerator": 13,
+      "denominator": 13,
+      "rate": 1
+    },
+    "toolSelectionAccuracy": {
+      "numerator": 34,
+      "denominator": 34,
+      "rate": 1
+    },
+    "regressionStability": {
+      "numerator": 2,
+      "denominator": 2,
+      "rate": 1
+    }
+  },
+  "scenarios": [
+    {
+      "id": "valid-baseline",
+      "category": "build-validity",
+      "purpose": "Accept a complete fixture build and compute totals.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Complete build accepted.",
+      "actual": {
+        "valid": true,
+        "cost": 193
+      }
+    },
+    {
+      "id": "valid-recommendation",
+      "category": "recommendation",
+      "purpose": "Return a bounded deterministic recommendation with evidence.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "recommendationValidity": true,
+        "citationCoverage": true
+      },
+      "summary": "Deterministic recommendation remains valid.",
+      "actual": {
+        "status": "recommended",
+        "citations": [
+          "fixture-method"
+        ]
+      }
+    },
+    {
+      "id": "ring-slot-compatible",
+      "category": "compatibility",
+      "purpose": "Allow a ring item in either ring slot.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Ring slots are interchangeable.",
+      "actual": {
+        "valid": true
+      }
+    },
+    {
+      "id": "missing-equipment",
+      "category": "invalid-build",
+      "purpose": "Reject an incomplete build.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Missing weapon rejected.",
+      "actual": {
+        "expectedCode": "missing-item"
+      }
+    },
+    {
+      "id": "unavailable-item",
+      "category": "availability",
+      "purpose": "Reject an unavailable fixture item.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Unavailable item rejected.",
+      "actual": {
+        "expectedCode": "unavailable-item"
+      }
+    },
+    {
+      "id": "insufficient-level",
+      "category": "requirements",
+      "purpose": "Reject equipment above the character level.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Level requirement enforced.",
+      "actual": {
+        "level": 80
+      }
+    },
+    {
+      "id": "assigned-skill-cap",
+      "category": "requirements",
+      "purpose": "Reject assigned skill points above the level budget.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Assigned skill-point budget enforced.",
+      "actual": {
+        "level": 2
+      }
+    },
+    {
+      "id": "item-skill-requirement",
+      "category": "requirements",
+      "purpose": "Reject equipment when stable-order skill requirements are not met.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Item skill requirement enforced.",
+      "actual": {
+        "intelligence": 0
+      }
+    },
+    {
+      "id": "class-requirement",
+      "category": "requirements",
+      "purpose": "Reject a weapon for another class.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Class requirement enforced.",
+      "actual": {
+        "itemId": "shadow-knife"
+      }
+    },
+    {
+      "id": "wrong-slot",
+      "category": "compatibility",
+      "purpose": "Reject an item placed in the wrong equipment slot.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Wrong slot rejected.",
+      "actual": {
+        "expectedCode": "wrong-slot"
+      }
+    },
+    {
+      "id": "duplicate-item",
+      "category": "compatibility",
+      "purpose": "Reject the same unique item in both ring slots.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Duplicate item rejected.",
+      "actual": {
+        "expectedCode": "duplicate-item"
+      }
+    },
+    {
+      "id": "incompatible-items",
+      "category": "compatibility",
+      "purpose": "Reject an explicit cross-item incompatibility.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Explicit incompatibility enforced.",
+      "actual": {
+        "expectedCode": "incompatible-items"
+      }
+    },
+    {
+      "id": "ability-prerequisite",
+      "category": "ability-tree",
+      "purpose": "Reject an ability without its prerequisite path.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Ability prerequisite enforced.",
+      "actual": {
+        "expectedCode": "missing-ability-prerequisite"
+      }
+    },
+    {
+      "id": "ability-conflict",
+      "category": "ability-tree",
+      "purpose": "Reject mutually exclusive ability nodes.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Ability conflict enforced.",
+      "actual": {
+        "expectedCode": "ability-conflict"
+      }
+    },
+    {
+      "id": "ability-point-limit",
+      "category": "ability-tree",
+      "purpose": "Reject an ability selection above the level milestone budget.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Ability-point limit enforced.",
+      "actual": {
+        "expectedCode": "ability-point-limit"
+      }
+    },
+    {
+      "id": "conflicting-budget-goal",
+      "category": "goal-conflict",
+      "purpose": "Abstain when the current build violates an impossible budget.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "recommendationValidity": true,
+        "correctAbstention": true
+      },
+      "summary": "Impossible budget caused abstention.",
+      "actual": {
+        "status": "abstained"
+      }
+    },
+    {
+      "id": "zero-change-limit",
+      "category": "goal-conflict",
+      "purpose": "Abstain when no changes are permitted.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "recommendationValidity": true,
+        "correctAbstention": true
+      },
+      "summary": "Zero-change constraint caused abstention.",
+      "actual": {
+        "status": "abstained"
+      }
+    },
+    {
+      "id": "excluded-items",
+      "category": "goal-constraint",
+      "purpose": "Never introduce an explicitly excluded item.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "recommendationValidity": true,
+        "citationCoverage": true
+      },
+      "summary": "Excluded item allowlist respected.",
+      "actual": {
+        "status": "recommended"
+      }
+    },
+    {
+      "id": "unavailable-candidate-filter",
+      "category": "recommendation",
+      "purpose": "Never propose a known unavailable item.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "recommendationValidity": true,
+        "citationCoverage": true
+      },
+      "summary": "Unavailable candidate filtered.",
+      "actual": {
+        "selected": [
+          "chorus-visor",
+          "vanguard-seal",
+          "beacon-torc"
+        ]
+      }
+    },
+    {
+      "id": "outdated-data",
+      "category": "evidence",
+      "purpose": "Abstain when source cards are marked stale.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "recommendationValidity": true,
+        "correctAbstention": true
+      },
+      "summary": "Stale data caused abstention.",
+      "actual": {
+        "status": "abstained"
+      }
+    },
+    {
+      "id": "missing-source",
+      "category": "evidence",
+      "purpose": "Abstain when selected records cannot be cited.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "recommendationValidity": true,
+        "correctAbstention": true
+      },
+      "summary": "Missing evidence caused abstention.",
+      "actual": {
+        "status": "abstained"
+      }
+    },
+    {
+      "id": "source-disagreement",
+      "category": "evidence",
+      "purpose": "Abstain when supplied evidence contains a stale disagreement.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "schemaValidity": true,
+        "recommendationValidity": true,
+        "correctAbstention": true
+      },
+      "summary": "Source disagreement caused abstention.",
+      "actual": {
+        "status": "abstained"
+      }
+    },
+    {
+      "id": "incomplete-api-response",
+      "category": "tool-contract",
+      "purpose": "Reject an incomplete item API payload.",
+      "passed": true,
+      "checks": {
+        "schemaValidity": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Incomplete API payload rejected.",
+      "actual": {
+        "ok": false,
+        "message": "Wynncraft returned an incomplete or invalid JSON payload."
+      }
+    },
+    {
+      "id": "restricted-api-response",
+      "category": "tool-contract",
+      "purpose": "Surface a privacy restriction without retrying or importing a build.",
+      "passed": true,
+      "checks": {
+        "schemaValidity": true,
+        "correctAbstention": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Restricted profile remained unavailable.",
+      "actual": {
+        "ok": false,
+        "calls": 1
+      }
+    },
+    {
+      "id": "ambiguous-api-selector",
+      "category": "tool-contract",
+      "purpose": "Surface a 300 multi-selector response without retrying.",
+      "passed": true,
+      "checks": {
+        "schemaValidity": true,
+        "correctAbstention": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Ambiguous selector remained unresolved.",
+      "actual": {
+        "ok": false,
+        "calls": 1
+      }
+    },
+    {
+      "id": "provider-timeout",
+      "category": "provider-failure",
+      "purpose": "Abort one bounded provider request and use no output.",
+      "passed": true,
+      "checks": {
+        "schemaValidity": true,
+        "correctAbstention": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Provider timeout failed closed.",
+      "actual": {
+        "ok": false,
+        "calls": 1
+      }
+    },
+    {
+      "id": "malformed-model-json",
+      "category": "provider-schema",
+      "purpose": "Reject non-JSON provider content.",
+      "passed": true,
+      "checks": {
+        "schemaValidity": true,
+        "correctAbstention": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Malformed model JSON rejected.",
+      "actual": {
+        "ok": false
+      }
+    },
+    {
+      "id": "malformed-model-schema",
+      "category": "provider-schema",
+      "purpose": "Reject a JSON object outside the strict candidate schema.",
+      "passed": true,
+      "checks": {
+        "schemaValidity": true,
+        "correctAbstention": true,
+        "toolSelectionAccuracy": true
+      },
+      "summary": "Malformed model schema rejected.",
+      "actual": {
+        "ok": false
+      }
+    },
+    {
+      "id": "unknown-model-citation",
+      "category": "citation",
+      "purpose": "Reject a provider candidate with an unknown source ID.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "schemaValidity": true,
+        "recommendationValidity": true,
+        "correctAbstention": true
+      },
+      "summary": "Unknown citation caused abstention.",
+      "actual": {
+        "status": "abstained"
+      }
+    },
+    {
+      "id": "unsupported-model-claim",
+      "category": "grounding",
+      "purpose": "Reject an absolute provider claim not supported by evidence.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "schemaValidity": true,
+        "recommendationValidity": true,
+        "correctAbstention": true
+      },
+      "summary": "Unsupported claim caused abstention.",
+      "actual": {
+        "status": "abstained"
+      }
+    },
+    {
+      "id": "prompt-injection-source",
+      "category": "retrieval-safety",
+      "purpose": "Treat prompt-injection-like retrieved text as unsafe data.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "schemaValidity": true,
+        "recommendationValidity": true,
+        "correctAbstention": true
+      },
+      "summary": "Prompt-injection-like source caused abstention.",
+      "actual": {
+        "status": "abstained"
+      }
+    },
+    {
+      "id": "provider-unavailable-fallback",
+      "category": "provider-failure",
+      "purpose": "Use a cited fixture fallback when the provider is unavailable.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "schemaValidity": true,
+        "recommendationValidity": true,
+        "citationCoverage": true
+      },
+      "summary": "Provider-unavailable path used fixture fallback.",
+      "actual": {
+        "status": "recommended",
+        "origin": "fixture-fallback"
+      }
+    },
+    {
+      "id": "patch-impact",
+      "category": "patch-regression",
+      "purpose": "Detect added and changed fixture items across versions.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "regressionStability": true
+      },
+      "summary": "Patch impact matched the reviewed fixture.",
+      "actual": {
+        "added": [
+          "beacon-treads"
+        ],
+        "changed": [
+          "chorus-staff"
+        ],
+        "removed": []
+      }
+    },
+    {
+      "id": "reordered-dataset-regression",
+      "category": "patch-regression",
+      "purpose": "Produce the same result when source arrays are reordered.",
+      "passed": true,
+      "checks": {
+        "constraintSatisfaction": true,
+        "toolSelectionAccuracy": true,
+        "recommendationValidity": true,
+        "regressionStability": true
+      },
+      "summary": "Recommendation is stable under input ordering.",
+      "actual": {
+        "firstStatus": "recommended",
+        "secondStatus": "recommended"
+      }
+    }
+  ]
+}
