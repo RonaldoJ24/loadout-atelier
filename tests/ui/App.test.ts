@@ -174,8 +174,8 @@ describe('Loadout Atelier UI', () => {
   });
 
   it('previews identity-free live metadata without mutating the manual build', async () => {
-    const profileFetch = vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    const profileFetch = vi.fn<typeof fetch>(
+      async () =>
         ({
           ok: true,
           status: 200,

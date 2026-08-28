@@ -5,7 +5,6 @@ import { createDeepSeekProvider } from '../src/ai/deepseek.js';
 import { explainRecommendation } from '../src/ai/recommendation.js';
 import { createWynncraftClient } from '../src/data/wynncraft.js';
 import type {
-  ToolOutcome,
   ToolTrace,
   WynncraftClient,
   WynncraftPublicCharacter,
@@ -85,18 +84,6 @@ const outcomeStatus = (error: string): number => {
   if (/\b429\b|rate limit/i.test(error)) return 429;
   if (/timed out|timeout/i.test(error)) return 504;
   return 502;
-};
-
-const sendOutcome = <T>(res: Response, mode: ServerMode, outcome: ToolOutcome<T>): void => {
-  if (!outcome.ok) {
-    res.status(outcomeStatus(outcome.error)).json({
-      mode,
-      error: outcome.error,
-      trace: outcome.trace,
-    });
-    return;
-  }
-  res.status(200).json({ mode, data: outcome.data, trace: outcome.trace });
 };
 
 const fixtureProfileUnavailableTrace = (): ToolTrace => ({
