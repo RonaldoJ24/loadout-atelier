@@ -17,5 +17,6 @@ export type {
   WynncraftClientOptions,
   WynncraftFetch,
   WynncraftItem,
+  WynncraftPublicCharacter,
   WynncraftPublicProfile,
 } from './types.js';

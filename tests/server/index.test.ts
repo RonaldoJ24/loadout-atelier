@@ -91,9 +91,25 @@ describe('local service contract', () => {
   });
 
   it('returns an identity-free normalized profile summary in live mode', async () => {
-    const rawIdentifier = 'synthetic-server-private-marker';
+    const rawIdentifier = 'synthetic-server-character-key';
+    const calls: string[] = [];
     const fetcher = vi.fn(async (url: string) => {
-      expect(url).toBe('https://api.wynncraft.com/v3/player/SyntheticTester');
+      calls.push(url);
+      if (url.endsWith('/characters')) {
+        return {
+          status: 200,
+          ok: true,
+          headers: { get: () => null },
+          text: async () =>
+            JSON.stringify({
+              [rawIdentifier]: {
+                class: 'Mage',
+                level: 106,
+                nickname: 'synthetic-server-nickname',
+              },
+            }),
+        };
+      }
       return {
         status: 200,
         ok: true,
@@ -106,8 +122,8 @@ describe('local service contract', () => {
             username: 'SyntheticTester',
             online: true,
             uuid: rawIdentifier,
-            characters: { [rawIdentifier]: { id: rawIdentifier } },
-            restrictions: { characterDataAccess: 'public' },
+            characters: { [rawIdentifier]: { class: 'Mage', level: 106, id: rawIdentifier } },
+            restrictions: { characterDataAccess: true, characterListAccess: false },
             guild: { name: 'synthetic-server-unreturned-field' },
           }),
       };
@@ -123,14 +139,16 @@ describe('local service contract', () => {
     const body = (await response.json()) as Record<string, unknown> & {
       data?: Record<string, unknown>;
       trace?: Record<string, unknown> & { metadata?: Record<string, unknown> };
+      traces?: Array<Record<string, unknown>>;
     };
 
     expect(response.status).toBe(200);
     expect(body.data).toEqual({
-      status: 'public',
+      status: 'partial',
       online: true,
       characterCount: 1,
       characterData: 'available',
+      characters: [{ classId: 'mage', level: 106 }],
     });
     expect(body.trace).toMatchObject({
       tool: 'wynncraft.getPublicProfile',
@@ -138,11 +156,148 @@ describe('local service contract', () => {
       cache: 'bypass',
       metadata: { version: 'v3.7.2' },
     });
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(body.traces).toEqual([
+      expect.objectContaining({ tool: 'wynncraft.getPublicProfile', cache: 'bypass' }),
+      expect.objectContaining({ tool: 'wynncraft.getPublicCharacters', cache: 'bypass' }),
+    ]);
+    expect(calls).toEqual([
+      'https://api.wynncraft.com/v3/player/SyntheticTester',
+      'https://api.wynncraft.com/v3/player/SyntheticTester/characters',
+    ]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain('SyntheticTester');
     expect(serialized).not.toContain(rawIdentifier);
+    expect(serialized).not.toContain('synthetic-server-nickname');
     expect(serialized).not.toContain('synthetic-server-unreturned-field');
+  });
+
+  it('short-circuits the character request when profile access is restricted', async () => {
+    const fetcher = vi.fn(async () => ({
+      status: 200,
+      ok: true,
+      headers: { get: () => null },
+      text: async () =>
+        JSON.stringify({
+          online: true,
+          restrictions: { characterListAccess: true },
+          uuid: 'synthetic-restricted-profile-marker',
+        }),
+    }));
+    const client = createWynncraftClient({ fetch: fetcher as never });
+    const baseUrl = await start({ mode: 'live', client });
+
+    const response = await fetch(`${baseUrl}/api/profile`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ playerName: 'SyntheticTester' }),
+    });
+    const body = (await response.json()) as Record<string, unknown> & {
+      data?: Record<string, unknown>;
+      traces?: Array<Record<string, unknown>>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.data).toEqual({
+      status: 'partial',
+      online: true,
+      characterCount: null,
+      characterData: 'restricted',
+      characters: null,
+    });
+    expect(body.traces).toHaveLength(1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(body)).not.toContain('synthetic-restricted-profile-marker');
+  });
+
+  it('turns a restricted character-list response into a partial identity-free result', async () => {
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.endsWith('/characters')) {
+        return {
+          status: 403,
+          ok: false,
+          headers: { get: () => null },
+          text: async () => JSON.stringify({ detail: 'synthetic-character-restriction' }),
+        };
+      }
+      return {
+        status: 200,
+        ok: true,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ online: true, characters: [] }),
+      };
+    });
+    const client = createWynncraftClient({ fetch: fetcher as never });
+    const baseUrl = await start({ mode: 'live', client });
+
+    const response = await fetch(`${baseUrl}/api/profile`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ playerName: 'SyntheticTester' }),
+    });
+    const body = (await response.json()) as Record<string, unknown> & {
+      data?: Record<string, unknown>;
+      traces?: Array<Record<string, unknown>>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.data).toEqual({
+      status: 'partial',
+      online: true,
+      characterCount: null,
+      characterData: 'restricted',
+      characters: null,
+    });
+    expect(body.traces).toHaveLength(2);
+    expect(body.traces?.[1]).toMatchObject({
+      tool: 'wynncraft.getPublicCharacters',
+      status: 'error',
+      cache: 'bypass',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(body)).not.toContain('synthetic-character-restriction');
+  });
+
+  it('keeps other character-list failures typed and readable', async () => {
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.endsWith('/characters')) {
+        return {
+          status: 429,
+          ok: false,
+          headers: { get: () => null },
+          text: async () => JSON.stringify({ detail: 'synthetic-rate-limit-body' }),
+        };
+      }
+      return {
+        status: 200,
+        ok: true,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ online: false, characters: [] }),
+      };
+    });
+    const client = createWynncraftClient({ fetch: fetcher as never });
+    const baseUrl = await start({ mode: 'live', client });
+
+    const response = await fetch(`${baseUrl}/api/profile`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ playerName: 'SyntheticTester' }),
+    });
+    const body = (await response.json()) as Record<string, unknown> & {
+      traces?: Array<Record<string, unknown>>;
+    };
+
+    expect(response.status).toBe(429);
+    expect(body.error).toContain('rate limit');
+    expect(body.data).toBeUndefined();
+    expect(body.traces).toHaveLength(2);
+    expect(body.traces?.[1]).toMatchObject({
+      tool: 'wynncraft.getPublicCharacters',
+      status: 'error',
+      cache: 'bypass',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(body)).not.toContain('synthetic-rate-limit-body');
   });
 
   it('rejects malformed and oversized recommendation requests', async () => {

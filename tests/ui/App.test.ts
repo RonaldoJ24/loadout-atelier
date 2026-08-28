@@ -186,6 +186,10 @@ describe('Loadout Atelier UI', () => {
               online: true,
               characterCount: 2,
               characterData: 'available',
+              characters: [
+                { classId: 'mage', level: 90 },
+                { classId: 'warrior', level: 80 },
+              ],
             },
             trace: { mode: 'live', status: 'ok', durationMs: 12 },
           }),
@@ -218,12 +222,140 @@ describe('Loadout Atelier UI', () => {
       method: 'POST',
       body: JSON.stringify({ playerName: 'Example_1' }),
     });
+    fireEvent.click(screen.getByRole('button', { name: 'Close public profile preview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import public profile' }));
+    expect((screen.getByLabelText('Public player name') as HTMLInputElement).value).toBe('');
+  });
+
+  it('offers generic character previews and applies only class, level, and compatible abilities', async () => {
+    const profileFetch = vi.fn(
+      async () =>
+        ({
+          status: 200,
+          json: async () => ({
+            mode: 'live',
+            data: {
+              status: 'public',
+              online: null,
+              characterCount: 3,
+              characterData: 'available',
+              characters: [
+                { classId: 'archer', level: 77 },
+                { classId: 'archer', level: 77 },
+                { classId: 'mage', level: 91 },
+              ],
+            },
+          }),
+        }) as Response,
+    );
+    render(
+      createElement(App, {
+        profileImportEnabled: true,
+        profileFetch: profileFetch as typeof fetch,
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Generate recommendation/i }));
+    expect(screen.getByText('Changed slots')).toBeTruthy();
+    const weapon = screen.getByRole('combobox', { name: 'Weapon item' }) as HTMLSelectElement;
+    const originalWeapon = weapon.value;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import public profile' }));
+    fireEvent.change(screen.getByLabelText('Public player name'), {
+      target: { value: 'Example_1' },
+    });
+    fireEvent.submit(screen.getByRole('form', { name: 'Import public profile' }));
+
+    expect(await screen.findByText('Character previews')).toBeTruthy();
+    expect(screen.getByText('Character 1')).toBeTruthy();
+    expect(screen.getByText('Character 2')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /Use Archer level 77/ })).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Use Archer level 77 from Character 1' }));
+
+    expect((screen.getByLabelText('Class') as HTMLSelectElement).value).toBe('archer');
+    expect((screen.getByLabelText('Level') as HTMLInputElement).value).toBe('77');
+    expect(weapon.value).toBe(originalWeapon);
+    expect(screen.getByText('0 selected')).toBeTruthy();
+    expect(screen.getByText('Build needs attention')).toBeTruthy();
+    expect(screen.queryByText('Changed slots')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Save current/i }));
+    expect(window.localStorage.getItem('loadout-atelier.saved-builds.v1')).not.toContain(
+      'Example_1',
+    );
+  });
+
+  it('fails closed for inconsistent restricted character data', async () => {
+    const profileFetch = vi.fn(
+      async () =>
+        ({
+          status: 200,
+          json: async () => ({
+            mode: 'live',
+            data: {
+              status: 'partial',
+              online: null,
+              characterCount: null,
+              characterData: 'restricted',
+              characters: [{ classId: 'mage', level: 90 }],
+            },
+          }),
+        }) as Response,
+    );
+    render(
+      createElement(App, {
+        profileImportEnabled: true,
+        profileFetch: profileFetch as typeof fetch,
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Import public profile' }));
+    fireEvent.change(screen.getByLabelText('Public player name'), {
+      target: { value: 'Example_1' },
+    });
+    fireEvent.submit(screen.getByRole('form', { name: 'Import public profile' }));
+
+    expect(await screen.findByText('Lookup unavailable')).toBeTruthy();
+    expect(screen.queryByText('Character previews')).toBeNull();
+  });
+
+  it('does not silently clamp a live level beyond the fixture contract', async () => {
+    const profileFetch = vi.fn(
+      async () =>
+        ({
+          status: 200,
+          json: async () => ({
+            mode: 'live',
+            data: {
+              status: 'public',
+              online: null,
+              characterCount: 1,
+              characterData: 'available',
+              characters: [{ classId: 'mage', level: 120 }],
+            },
+          }),
+        }) as Response,
+    );
+    render(
+      createElement(App, {
+        profileImportEnabled: true,
+        profileFetch: profileFetch as typeof fetch,
+      }),
+    );
+    const originalLevel = (screen.getByLabelText('Level') as HTMLInputElement).value;
+    fireEvent.click(screen.getByRole('button', { name: 'Import public profile' }));
+    fireEvent.change(screen.getByLabelText('Public player name'), {
+      target: { value: 'Example_1' },
+    });
+    fireEvent.submit(screen.getByRole('form', { name: 'Import public profile' }));
+
+    const unsupported = await screen.findByRole('button', {
+      name: /exceeds this fixture's supported level/i,
+    });
+    expect((unsupported as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Level') as HTMLInputElement).value).toBe(originalLevel);
   });
 
   it('surfaces an ambiguous public name without importing anything', async () => {
     const profileFetch = vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        ({ status: 409, json: async () => ({ error: 'ambiguous' }) }) as Response,
+      async () => ({ status: 409, json: async () => ({ error: 'ambiguous' }) }) as Response,
     );
     render(
       createElement(App, {

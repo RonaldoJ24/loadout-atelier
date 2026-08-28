@@ -51,6 +51,11 @@ export type WynncraftPublicProfile = {
   online: boolean | null;
   characterCount: number | null;
   characterData: 'available' | 'restricted' | 'unknown';
+  characters: WynncraftPublicCharacter[] | null;
+};
+export type WynncraftPublicCharacter = {
+  classId: 'archer' | 'warrior' | 'assassin' | 'mage' | 'shaman';
+  level: number;
 };
 export type WynncraftCharacter = Record<string, unknown>;
 export type WynncraftCharacterAbilities = Record<string, unknown>;
@@ -60,7 +65,7 @@ export type WynncraftItem = Record<string, unknown>;
 export type WynncraftFetch = typeof globalThis.fetch;
 
 export type WynncraftCacheRoute =
-  'profile' | 'character' | 'characterAbilities' | 'abilityTree' | 'items';
+  'profile' | 'publicCharacters' | 'character' | 'characterAbilities' | 'abilityTree' | 'items';
 
 export type WynncraftClientOptions = {
   baseUrl?: string;
@@ -75,6 +80,7 @@ export type WynncraftClientOptions = {
 
 export type WynncraftClient = {
   getPublicProfile(playerName: string): Promise<ToolOutcome<WynncraftPublicProfile>>;
+  getPublicCharacters(playerName: string): Promise<ToolOutcome<WynncraftPublicCharacter[]>>;
   getCharacter(selector: string, characterId: string): Promise<ToolOutcome<WynncraftCharacter>>;
   getCharacterAbilities(
     selector: string,

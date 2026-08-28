@@ -34,7 +34,7 @@ import {
   type EvaluationScenario,
   type EvaluationScenarioResult,
 } from '../evals/harness';
-import type { WynncraftPublicProfile } from '../data/types';
+import type { WynncraftPublicCharacter, WynncraftPublicProfile } from '../data/types';
 
 type Screen = 'workspace' | 'evaluation';
 
@@ -45,9 +45,12 @@ type SavedBuild = {
   goals: BuildGoals;
 };
 
-type ProfileData = WynncraftPublicProfile;
+type ProfileData = Omit<WynncraftPublicProfile, 'characters'> & {
+  characters: WynncraftPublicCharacter[];
+};
 
 type ProfileTrace = {
+  tool?: 'wynncraft.getPublicProfile' | 'wynncraft.getPublicCharacters';
   mode?: string;
   status?: string;
   startedAt?: string;
@@ -71,6 +74,7 @@ type ProfileLookupState = {
   message?: string;
   data?: ProfileData;
   trace?: ProfileTrace;
+  traces?: ProfileTrace[];
 };
 
 type AppProps = {
@@ -89,6 +93,33 @@ const isLoopbackHost = (hostname: string): boolean =>
 const DEFAULT_PROFILE_IMPORT_ENABLED =
   typeof window !== 'undefined' && isLoopbackHost(window.location.hostname);
 
+const profileCharactersFrom = (value: unknown): WynncraftPublicCharacter[] | null => {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 32) return null;
+  const characters: WynncraftPublicCharacter[] = [];
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const record = candidate as Record<string, unknown>;
+    const classId =
+      typeof record.classId === 'string' && (CLASSES as readonly string[]).includes(record.classId)
+        ? (record.classId as ClassId)
+        : null;
+    const level = record.level;
+    if (
+      !classId ||
+      typeof level !== 'number' ||
+      !Number.isInteger(level) ||
+      !Number.isFinite(level) ||
+      level < 1 ||
+      level > 200
+    ) {
+      return null;
+    }
+    characters.push({ classId, level });
+  }
+  return characters;
+};
+
 const profileDataFrom = (value: unknown): ProfileData | null => {
   if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
@@ -105,13 +136,35 @@ const profileDataFrom = (value: unknown): ProfileData | null => {
     typeof record.characterCount === 'number' && Number.isFinite(record.characterCount)
       ? Math.max(0, Math.round(record.characterCount))
       : null;
-  return { status: record.status, online, characterCount, characterData };
+  const characters = profileCharactersFrom(record.characters);
+  if (!characters) return null;
+  if (characterData !== 'available' && characters.length > 0) return null;
+  if (
+    characterData === 'available' &&
+    characterCount !== null &&
+    characterCount !== characters.length
+  ) {
+    return null;
+  }
+  return {
+    status: record.status,
+    online,
+    characterCount,
+    characterData,
+    characters,
+  };
 };
 
 const profileTraceFrom = (value: unknown): ProfileTrace | undefined => {
   if (!value || typeof value !== 'object') return undefined;
   const record = value as Record<string, unknown>;
   const trace: ProfileTrace = {};
+  if (
+    record.tool === 'wynncraft.getPublicProfile' ||
+    record.tool === 'wynncraft.getPublicCharacters'
+  ) {
+    trace.tool = record.tool;
+  }
   if (record.mode === 'live' || record.mode === 'cached' || record.mode === 'fixture') {
     trace.mode = record.mode;
   }
@@ -167,16 +220,26 @@ const profileStateForResponse = (body: unknown, responseStatus: number): Profile
     return { kind: 'error', message: 'The profile service returned an unreadable response.' };
   }
   const record = responseRecord as Record<string, unknown>;
-  const data = profileDataFrom(record.data ?? record);
+  const dataPayload = record.data ?? record;
+  const data = profileDataFrom(dataPayload);
   if (!data) {
     return { kind: 'error', message: 'The profile service returned incomplete profile metadata.' };
   }
   const trace = profileTraceFrom(record.trace);
+  const traces = Array.isArray(record.traces)
+    ? record.traces
+        .map((candidate) => profileTraceFrom(candidate))
+        .filter((candidate): candidate is ProfileTrace => candidate !== undefined)
+        .slice(0, 4)
+    : trace
+      ? [trace]
+      : [];
   if (data.characterData === 'restricted') {
     return {
       kind: 'partial',
       data,
       trace,
+      traces,
       message: 'Public profile metadata is available, but character data is restricted.',
     };
   }
@@ -185,10 +248,17 @@ const profileStateForResponse = (body: unknown, responseStatus: number): Profile
       kind: 'partial',
       data,
       trace,
+      traces,
       message: 'Only partial public profile metadata is available.',
     };
   }
-  return { kind: 'complete', data, trace, message: 'Public profile preview ready.' };
+  return {
+    kind: 'complete',
+    data,
+    trace,
+    traces,
+    message: 'Public profile preview ready.',
+  };
 };
 
 const STORAGE_KEY = 'loadout-atelier.saved-builds.v1';
@@ -397,6 +467,7 @@ function ProfileImportPanel({
   onSubmit,
   onClear,
   onClose,
+  onApplyCharacter,
 }: {
   enabled: boolean;
   username: string;
@@ -406,6 +477,7 @@ function ProfileImportPanel({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onClear: () => void;
   onClose: () => void;
+  onApplyCharacter: (character: WynncraftPublicCharacter) => void;
 }) {
   const statusMessage = state.message;
   const isAlert = [
@@ -593,12 +665,62 @@ function ProfileImportPanel({
               </div>
             </div>
           ) : null}
+          {state.data?.characters.length ? (
+            <section
+              className="profile-character-section"
+              aria-labelledby="profile-characters-title"
+            >
+              <div className="profile-character-heading">
+                <h4 id="profile-characters-title">Character previews</h4>
+                <span>class + level only</span>
+              </div>
+              <ol className="profile-character-list">
+                {state.data.characters.map((character, index) => (
+                  <li
+                    className="profile-character-row"
+                    key={`${character.classId}-${character.level}-${index}`}
+                  >
+                    <div>
+                      <span className="profile-character-ordinal">Character {index + 1}</span>
+                      <strong>
+                        {classLabels[character.classId]} · Level {character.level}
+                      </strong>
+                    </div>
+                    <button
+                      className="profile-character-apply"
+                      type="button"
+                      aria-label={
+                        character.level > currentDataset.rules.maxLevel
+                          ? `${classLabels[character.classId]} level ${character.level} exceeds this fixture's supported level`
+                          : `Use ${classLabels[character.classId]} level ${character.level} from Character ${index + 1}`
+                      }
+                      disabled={character.level > currentDataset.rules.maxLevel}
+                      onClick={() => onApplyCharacter(character)}
+                    >
+                      {character.level > currentDataset.rules.maxLevel
+                        ? 'Level unsupported'
+                        : 'Use class and level'}
+                    </button>
+                  </li>
+                ))}
+              </ol>
+              <p className="profile-character-note">
+                Applying a preview changes class and level, removes selected abilities from other
+                classes, and leaves equipment unchanged.
+              </p>
+            </section>
+          ) : null}
           {state.trace ? (
-            <small className="profile-trace">
-              Trace: {state.trace.mode ?? sourceMode}
-              {state.trace.status ? ` · ${state.trace.status}` : ''}
-              {typeof state.trace.durationMs === 'number' ? ` · ${state.trace.durationMs} ms` : ''}
-            </small>
+            <div className="profile-traces" aria-label="Profile tool outcomes">
+              {(state.traces?.length ? state.traces : [state.trace]).map((trace, index) => (
+                <small className="profile-trace" key={`${trace.tool ?? 'profile'}-${index}`}>
+                  {trace.tool === 'wynncraft.getPublicCharacters' ? 'Character list' : 'Profile'}:{' '}
+                  {trace.mode ?? sourceMode}
+                  {trace.status ? ` · ${trace.status}` : ''}
+                  {typeof trace.durationMs === 'number' ? ` · ${trace.durationMs} ms` : ''}
+                </small>
+              ))}
+            </div>
           ) : null}
           {state.data ? (
             <p className="profile-preview-note">
@@ -696,6 +818,21 @@ function App({
       abilities: current.abilities.filter(
         (abilityId) =>
           currentDataset.abilities.find((ability) => ability.id === abilityId)?.classId === classId,
+      ),
+    }));
+    setRecommendation(null);
+  };
+
+  const applyProfileCharacter = (character: WynncraftPublicCharacter) => {
+    if (character.level > currentDataset.rules.maxLevel) return;
+    setBuild((current) => ({
+      ...current,
+      classId: character.classId,
+      level: character.level,
+      abilities: current.abilities.filter(
+        (abilityId) =>
+          currentDataset.abilities.find((ability) => ability.id === abilityId)?.classId ===
+          character.classId,
       ),
     }));
     setRecommendation(null);
@@ -1188,6 +1325,7 @@ function App({
                   onSubmit={submitProfileLookup}
                   onClear={clearProfile}
                   onClose={closeProfile}
+                  onApplyCharacter={applyProfileCharacter}
                 />
               ) : null}
             </section>

@@ -4,7 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { createDeepSeekProvider } from '../src/ai/deepseek.js';
 import { explainRecommendation } from '../src/ai/recommendation.js';
 import { createWynncraftClient } from '../src/data/wynncraft.js';
-import type { ToolOutcome, ToolTrace, WynncraftClient } from '../src/data/types.js';
+import type {
+  ToolOutcome,
+  ToolTrace,
+  WynncraftClient,
+  WynncraftPublicCharacter,
+  WynncraftPublicProfile,
+} from '../src/data/types.js';
 import type { DeepSeekProvider } from '../src/ai/types.js';
 import type { RecommendationResult, VersionedDataset } from '../src/domain/contracts.js';
 
@@ -105,6 +111,20 @@ const fixtureProfileUnavailableTrace = (): ToolTrace => ({
   cache: 'bypass',
 });
 
+const profileDataWithCharacters = (
+  profile: WynncraftPublicProfile,
+  characters: WynncraftPublicCharacter[] | null,
+  restricted: boolean,
+): WynncraftPublicProfile => ({
+  status: characters === null && restricted ? 'partial' : profile.status,
+  online: profile.online,
+  characterCount: characters === null ? null : characters.length,
+  characterData: characters === null ? (restricted ? 'restricted' : 'unknown') : 'available',
+  characters,
+});
+
+const isRestrictionError = (error: string): boolean => /\b403\b|restricted|denied/i.test(error);
+
 const safeErrorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
   void _next;
   const status =
@@ -174,16 +194,65 @@ export const createApp = (options: ServerOptions = {}): express.Express => {
       return;
     }
     if (mode === 'fixture') {
+      const trace = fixtureProfileUnavailableTrace();
       response.status(503).json({
         mode,
         error: 'Live profile lookup is unavailable in fixture mode.',
-        trace: fixtureProfileUnavailableTrace(),
+        trace,
+        traces: [trace],
       });
       return;
     }
     try {
-      const outcome = await client.getPublicProfile(playerName);
-      sendOutcome(response, mode, outcome);
+      const profileOutcome = await client.getPublicProfile(playerName);
+      if (!profileOutcome.ok) {
+        response.status(outcomeStatus(profileOutcome.error)).json({
+          mode,
+          error: profileOutcome.error,
+          trace: profileOutcome.trace,
+          traces: [profileOutcome.trace],
+        });
+        return;
+      }
+
+      const profileTrace = profileOutcome.trace;
+      // A profile restriction is authoritative. Do not make a second request
+      // that would only repeat a denied character-list lookup.
+      if (profileOutcome.data.characterData === 'restricted') {
+        const data = profileDataWithCharacters(profileOutcome.data, null, true);
+        response.status(200).json({
+          mode,
+          data,
+          trace: profileTrace,
+          traces: [profileTrace],
+        });
+        return;
+      }
+
+      const charactersOutcome = await client.getPublicCharacters(playerName);
+      const traces = [profileTrace, charactersOutcome.trace];
+      if (!charactersOutcome.ok) {
+        if (isRestrictionError(charactersOutcome.error)) {
+          const data = profileDataWithCharacters(profileOutcome.data, null, true);
+          response.status(200).json({
+            mode,
+            data,
+            trace: profileTrace,
+            traces,
+          });
+          return;
+        }
+        response.status(outcomeStatus(charactersOutcome.error)).json({
+          mode,
+          error: charactersOutcome.error,
+          trace: charactersOutcome.trace,
+          traces,
+        });
+        return;
+      }
+
+      const data = profileDataWithCharacters(profileOutcome.data, charactersOutcome.data, false);
+      response.status(200).json({ mode, data, trace: profileTrace, traces });
     } catch {
       response.status(502).json({ error: 'Profile service is temporarily unavailable.' });
     }

@@ -6,6 +6,7 @@ import type {
   WynncraftClient,
   WynncraftClientOptions,
   WynncraftItem,
+  WynncraftPublicCharacter,
   WynncraftPublicProfile,
 } from './types.js';
 import type { ToolOutcome, ToolTrace, ToolTraceMetadata } from './types.js';
@@ -24,6 +25,7 @@ const SENSITIVE_VALUE_PATTERN =
 // bounded and cacheable.
 const DEFAULT_CACHE_TTL_MS: Record<WynncraftCacheRoute, number> = {
   profile: 0,
+  publicCharacters: 0,
   character: 0,
   characterAbilities: 0,
   abilityTree: 60 * 60_000,
@@ -309,7 +311,7 @@ const normalizePublicProfile = (payload: unknown): WynncraftPublicProfile | unde
   const restrictionEntries = restrictions ? Object.entries(restrictions) : [];
   const hasPrivateFields = restrictionEntries.some(([, value]) => restrictionIsPrivate(value));
   const characterRestricted = restrictionEntries.some(
-    ([key, value]) => /character/i.test(key) && restrictionIsPrivate(value),
+    ([key, value]) => key === 'characterListAccess' && restrictionIsPrivate(value),
   );
 
   // An identifier-only or otherwise unrelated object is not a usable profile
@@ -331,7 +333,58 @@ const normalizePublicProfile = (payload: unknown): WynncraftPublicProfile | unde
 
   const status: WynncraftPublicProfile['status'] =
     hasPrivateFields || online === null || characterData !== 'available' ? 'partial' : 'public';
-  return { status, online, characterCount, characterData };
+  return { status, online, characterCount, characterData, characters: null };
+};
+
+const PUBLIC_CLASS_IDS = ['archer', 'warrior', 'assassin', 'mage', 'shaman'] as const;
+
+const normalizePublicClassId = (
+  value: unknown,
+): WynncraftPublicCharacter['classId'] | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  return (PUBLIC_CLASS_IDS as readonly string[]).includes(normalized)
+    ? (normalized as WynncraftPublicCharacter['classId'])
+    : undefined;
+};
+
+const normalizePublicCharacter = (value: unknown): WynncraftPublicCharacter | undefined => {
+  if (!isRecord(value)) return undefined;
+
+  // The documented payload has used a class-like field in different API
+  // revisions. Prefer explicit class/classId fields; accept type only as a
+  // strict fallback when neither is present. Any supplied class field that is
+  // present but malformed rejects the whole entry rather than guessing.
+  const classFields = ['classId', 'class'].filter((key) =>
+    Object.prototype.hasOwnProperty.call(value, key),
+  );
+  const sourceFields = classFields.length
+    ? classFields
+    : Object.prototype.hasOwnProperty.call(value, 'type')
+      ? ['type']
+      : [];
+  if (sourceFields.length === 0) return undefined;
+  const classIds = sourceFields.map((key) => normalizePublicClassId(value[key]));
+  if (classIds.some((classId) => classId === undefined)) return undefined;
+  const classId = classIds[0];
+  if (!classId || classIds.some((candidate) => candidate !== classId)) return undefined;
+
+  const level = value.level;
+  if (typeof level !== 'number' || !Number.isInteger(level) || level < 1 || level > 200) {
+    return undefined;
+  }
+  return { classId, level };
+};
+
+const normalizePublicCharacters = (payload: unknown): WynncraftPublicCharacter[] | undefined => {
+  if (!isRecord(payload)) return undefined;
+  const entries = Object.entries(payload);
+  if (entries.length > 32) return undefined;
+  const characters = entries.map(([, value]) => normalizePublicCharacter(value));
+  if (characters.some((character) => character === undefined)) return undefined;
+  return (characters as WynncraftPublicCharacter[]).sort(
+    (left, right) => right.level - left.level || left.classId.localeCompare(right.classId),
+  );
 };
 
 const asItem = (value: unknown): value is WynncraftItem =>
@@ -601,6 +654,36 @@ export const createWynncraftClient = (options: WynncraftClientOptions = {}): Wyn
     );
   };
 
+  const getPublicCharacters = (
+    playerName: string,
+  ): Promise<ToolOutcome<WynncraftPublicCharacter[]>> => {
+    const startedAt = Date.now();
+    const normalizedName = normalizePlayerName(playerName);
+    if (!normalizedName) {
+      return Promise.resolve(
+        invalidArgument(
+          'wynncraft.getPublicCharacters',
+          startedAt,
+          'Profile name must be a trimmed Minecraft username (letters, numbers, or underscore; 1-16 characters).',
+          'bypass',
+        ),
+      );
+    }
+    const encodedName = encodeURIComponent(normalizedName);
+    // The character-list payload is keyed by UUID and may contain nicknames,
+    // reskins, XP, modes, and other account data. It is always transformed
+    // transiently and bypasses the shared cache.
+    return request<WynncraftPublicCharacter[]>(
+      'publicCharacters',
+      'wynncraft.getPublicCharacters',
+      `/player/${encodedName}/characters`,
+      isRecord,
+      `publicCharacters:${encodedName}`,
+      false,
+      normalizePublicCharacters,
+    );
+  };
+
   const getCharacter = (
     selector: string,
     characterId: string,
@@ -715,6 +798,7 @@ export const createWynncraftClient = (options: WynncraftClientOptions = {}): Wyn
 
   return {
     getPublicProfile,
+    getPublicCharacters,
     getCharacter,
     getCharacterAbilities,
     getAbilityTree,
