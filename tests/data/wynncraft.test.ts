@@ -5,6 +5,7 @@ const response = (status: number, payload: unknown, headers: Record<string, stri
   status,
   ok: status >= 200 && status < 300,
   headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
+  text: async () => JSON.stringify(payload),
   json: async () => payload,
 });
 
@@ -110,7 +111,7 @@ describe('Wynncraft boundary client', () => {
           status: 200,
           ok: true,
           headers: { get: () => null },
-          json: () => new Promise<never>(() => undefined),
+          text: () => new Promise<never>(() => undefined),
         };
       });
       const client = createWynncraftClient({ fetch: fetch as never, timeoutMs: 25 });

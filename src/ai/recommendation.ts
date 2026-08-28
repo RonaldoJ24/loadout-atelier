@@ -399,10 +399,103 @@ const sourceCards = (dataset: VersionedDataset): SourceCard[] =>
 const sourceIsFresh = (source: SourceCard, dataset: VersionedDataset): boolean => {
   if (source.freshness !== 'fresh') return false;
   if (!source.retrievedAt || Number.isNaN(Date.parse(source.retrievedAt))) return false;
+  const retrievedAt = Date.parse(source.retrievedAt);
+  if (retrievedAt > Date.now() + 5 * 60_000) return false;
   const staleAfterDays = Number.isFinite(dataset.rules.staleAfterDays)
     ? dataset.rules.staleAfterDays
     : FALLBACK_STALE_AFTER_DAYS;
-  return Date.now() - Date.parse(source.retrievedAt) <= staleAfterDays * 86_400_000;
+  return Date.now() - retrievedAt <= staleAfterDays * 86_400_000;
+};
+
+const semanticClaimReasons = (
+  candidate: RecommendationCandidate,
+  baseline: ValidationResult,
+  proposed: ValidationResult,
+): string[] => {
+  const reasons: string[] = [];
+  const texts = [
+    candidate.summary,
+    ...candidate.tradeoffs,
+    ...candidate.equipmentChanges.flatMap((change) => change.reasons),
+  ];
+  const hasChanges =
+    candidate.equipmentChanges.length > 0 ||
+    candidate.abilityChanges.add.length > 0 ||
+    candidate.abilityChanges.remove.length > 0;
+  const metrics: Array<{ label: string; pattern: RegExp; before: number; after: number }> = [
+    {
+      label: 'health',
+      pattern: /\bhealth\b/i,
+      before: baseline.totals.health,
+      after: proposed.totals.health,
+    },
+    {
+      label: 'healing',
+      pattern: /\bhealing\b/i,
+      before: baseline.totals.healing,
+      after: proposed.totals.healing,
+    },
+    {
+      label: 'defense',
+      pattern: /\bdefen[cs]e\b/i,
+      before: baseline.totals.defense,
+      after: proposed.totals.defense,
+    },
+    {
+      label: 'mobility',
+      pattern: /\bmobility\b/i,
+      before: baseline.totals.mobility,
+      after: proposed.totals.mobility,
+    },
+    {
+      label: 'spell damage',
+      pattern: /\bspell\s+damage\b/i,
+      before: baseline.totals.spellDamage,
+      after: proposed.totals.spellDamage,
+    },
+    {
+      label: 'melee damage',
+      pattern: /\bmelee\s+damage\b/i,
+      before: baseline.totals.meleeDamage,
+      after: proposed.totals.meleeDamage,
+    },
+    {
+      label: 'mana regeneration',
+      pattern: /\bmana\s+(?:regen|regeneration)\b/i,
+      before: baseline.totals.manaRegen,
+      after: proposed.totals.manaRegen,
+    },
+    { label: 'cost', pattern: /\b(?:cost|budget)\b/i, before: baseline.cost, after: proposed.cost },
+  ];
+  const upward = /\b(?:increase[sd]?|improve[sd]?|more|gain[sed]*|boost[sed]*)\b/i;
+  const downward = /\b(?:decrease[sd]?|reduce[sd]?|less|lower(?:ed|s)?)\b/i;
+
+  for (const text of texts) {
+    if (/\d/.test(text)) reasons.push('Provider prose contains an unverified numeric claim.');
+    if (hasChanges && /\b(?:no\s+changes?|keep\s+the\s+current\s+loadout)\b/i.test(text)) {
+      reasons.push('Provider prose contradicts the proposed changes.');
+    }
+    for (const metric of metrics) {
+      if (!metric.pattern.test(text)) continue;
+      if (upward.test(text) && metric.after <= metric.before) {
+        reasons.push(
+          `Provider prose claims increased ${metric.label} without a computed increase.`,
+        );
+      }
+      if (downward.test(text) && metric.after >= metric.before) {
+        reasons.push(`Provider prose claims reduced ${metric.label} without a computed reduction.`);
+      }
+    }
+    if (/\bdamage\b/i.test(text) && !/\b(?:spell|melee)\s+damage\b/i.test(text)) {
+      if (upward.test(text) && proposed.totals.damage <= baseline.totals.damage) {
+        reasons.push('Provider prose claims increased damage without a computed increase.');
+      }
+      if (downward.test(text) && proposed.totals.damage >= baseline.totals.damage) {
+        reasons.push('Provider prose claims reduced damage without a computed reduction.');
+      }
+    }
+  }
+  return [...new Set(reasons)];
 };
 
 const boundedText = (value: unknown, maximum = MAX_CANDIDATE_TEXT_CHARS): string | undefined =>
@@ -824,7 +917,12 @@ export async function explainRecommendation(
     ]);
   }
   const candidate = parsedCandidate.data as RecommendationCandidate;
-  const reasons = candidateReasons(candidate, build, goals, dataset);
+  const proposedBuild = applyCandidate(build, candidate);
+  const proposedValidation = validateBuild(proposedBuild, dataset, goals);
+  const reasons = [
+    ...candidateReasons(candidate, build, goals, dataset),
+    ...semanticClaimReasons(candidate, baseline, proposedValidation),
+  ];
   if (reasons.length > 0) {
     const validation = baseline;
     return {
@@ -841,8 +939,6 @@ export async function explainRecommendation(
       abstentionReasons: reasons.slice(0, 8),
     };
   }
-  const proposedBuild = applyCandidate(build, candidate);
-  const proposedValidation = validateBuild(proposedBuild, dataset, goals);
   const recheckContext: RecommendationRecheckContext = {
     build,
     proposedBuild,
