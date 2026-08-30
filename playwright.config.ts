@@ -12,7 +12,7 @@ export default defineConfig({
     ...devices['Desktop Chrome'],
   },
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1',
+    command: 'npm run dev:ui -- --host 127.0.0.1',
     url: process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:4173',
     reuseExistingServer: true,
     timeout: 120_000,

@@ -38,7 +38,7 @@ There is no chat surface, account system, cloud database, payment layer, or soci
 
 ## Quick start
 
-Requirements: Node.js 22 or newer.
+Requirements: Node.js 22.12 or newer. Node 24.18 is pinned in `.nvmrc`.
 
 ```bash
 git clone https://github.com/RonaldoJ24/loadout-atelier.git
@@ -47,16 +47,25 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:4173`. The fixture workspace is complete without a backend.
+Open `http://127.0.0.1:4173`. One command starts the UI and loopback-only API;
+Ctrl+C stops both. The default is offline fixture mode, with no provider calls.
+For just the standalone fixture UI, run `npm run dev:ui` instead.
 
-For the optional local service, use a second terminal:
+For optional local integrations, create the ignored environment file, then restart:
 
 ```bash
 cp .env.example .env.local
-npm run dev:server
+npm run dev
 ```
 
 Set `DATA_MODE=live` in the ignored `.env.local` to enable the loopback-only public-profile preview. Public Wynncraft reads do not require an account token. Set `DEEPSEEK_API_KEY` only when testing the optional explanation provider; the key is read by `server/` and must never use a `VITE_*` name.
+
+The API loads `.env.local` automatically; existing shell variables take precedence.
+You can still run it separately with `npm run dev:server`. In the UI, explicitly
+connect local AI, select it, then request a recommendation. Connecting only checks
+readiness; it does not spend provider credits. AI still uses the synthetic catalog,
+and rejected provider output is visibly identified as a fallback or abstention.
+The public Pages demo never connects to this local service.
 
 ## Five-minute demo
 
