@@ -35,6 +35,12 @@ import {
   type EvaluationScenarioResult,
 } from '../evals/harness';
 import type { WynncraftPublicCharacter, WynncraftPublicProfile } from '../data/types';
+import {
+  isLocalServiceAllowed,
+  readLocalServiceStatus,
+  requestLocalRecommendation,
+  type LocalServiceStatus,
+} from './local-service';
 
 type Screen = 'workspace' | 'evaluation';
 
@@ -757,6 +763,12 @@ function App({
   const [goals, setGoals] = useState<BuildGoals>(() => structuredClone(demoGoals));
   const [recommendation, setRecommendation] = useState<RecommendationResult | null>(null);
   const [recommendationLoading, setRecommendationLoading] = useState(false);
+  const [recommendationMode, setRecommendationMode] = useState<'offline' | 'ai'>('offline');
+  const [localServiceStatus, setLocalServiceStatus] = useState<LocalServiceStatus | null>(null);
+  const [localServiceLoading, setLocalServiceLoading] = useState(false);
+  const [localServiceMessage, setLocalServiceMessage] = useState<string | null>(null);
+  const localRecommendationAbortRef = useRef<AbortController | null>(null);
+  const buildRevisionRef = useRef(0);
   const [patchComparison, setPatchComparison] = useState<PatchComparison | null>(() =>
     runComparison(demoBuild),
   );
@@ -797,6 +809,12 @@ function App({
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    buildRevisionRef.current += 1;
+  }, [build, goals]);
+
+  useEffect(() => () => localRecommendationAbortRef.current?.abort(), []);
 
   useEffect(
     () => () => {
@@ -948,35 +966,86 @@ function App({
     setRecommendation(null);
   };
 
-  const generateRecommendation = () => {
-    setRecommendationLoading(true);
+  const connectLocalService = async () => {
+    setLocalServiceMessage(null);
+    if (!isLocalServiceAllowed()) {
+      setLocalServiceMessage(
+        'Local AI is available only on this computer. The hosted demo stays offline.',
+      );
+      return;
+    }
+    setLocalServiceLoading(true);
     try {
-      const nextRecommendation = runRecommendation(build, goals, currentDataset);
+      const status = await readLocalServiceStatus();
+      setLocalServiceStatus(status);
+      if (status.mode === 'live' && status.providerAvailable) {
+        setRecommendationMode('offline');
+        setLocalServiceMessage('Local AI is ready. Select it as the source, then request a pass.');
+      } else {
+        setRecommendationMode('offline');
+        setLocalServiceMessage(
+          'The local service is running in fixture mode. Offline recommendations remain available.',
+        );
+      }
+    } catch (error) {
+      setLocalServiceStatus(null);
+      setRecommendationMode('offline');
+      setLocalServiceMessage(
+        error instanceof Error ? error.message : 'The local service could not be reached.',
+      );
+    } finally {
+      setLocalServiceLoading(false);
+    }
+  };
+
+  const generateRecommendation = async () => {
+    setRecommendationLoading(true);
+    localRecommendationAbortRef.current?.abort();
+    const controller = new AbortController();
+    localRecommendationAbortRef.current = controller;
+    const revision = buildRevisionRef.current;
+    try {
+      const nextRecommendation =
+        recommendationMode === 'ai'
+          ? await requestLocalRecommendation(build, goals, { signal: controller.signal })
+          : runRecommendation(build, goals, currentDataset);
+      if (revision !== buildRevisionRef.current || controller.signal.aborted) return;
       setRecommendation(nextRecommendation);
       setEvaluationError(null);
-    } catch {
+    } catch (error) {
+      if (controller.signal.aborted) return;
       setRecommendation({
         status: 'abstained',
         origin: 'fixture-fallback',
         validation,
-        explanation: 'The deterministic evaluator returned an error, so no candidate was applied.',
+        explanation:
+          error instanceof Error
+            ? error.message
+            : 'No safe recommendation was returned, so no candidate was applied.',
         citationIds: [],
         traces: [
           {
             id: 'ui-recommendation-error',
-            tool: 'recommendDeterministically',
+            tool:
+              recommendationMode === 'ai' ? 'local-api.recommend' : 'recommendDeterministically',
             status: 'error',
             mode: currentDataset.mode,
             startedAt: new Date().toISOString(),
             durationMs: 0,
             sourceIds: [],
-            message: 'The local evaluator failed closed without using an unverified result.',
+            message: 'The recommendation request failed closed without using an unverified result.',
           },
         ],
-        abstentionReasons: ['The local deterministic evaluator failed closed.'],
+        abstentionReasons: [
+          recommendationMode === 'ai'
+            ? 'The local AI request failed or returned an invalid result.'
+            : 'The local deterministic evaluator failed closed.',
+        ],
       });
     } finally {
       setRecommendationLoading(false);
+      if (localRecommendationAbortRef.current === controller)
+        localRecommendationAbortRef.current = null;
     }
   };
 
@@ -1654,15 +1723,56 @@ function App({
                   <h2>Recommendation pass</h2>
                   <p>Candidate changes stay bounded by your goals and max-change constraint.</p>
                 </div>
-                <button
-                  className="primary-button generate-button"
-                  type="button"
-                  onClick={generateRecommendation}
-                  disabled={recommendationLoading}
-                >
-                  <Icon name="spark" />{' '}
-                  {recommendationLoading ? 'Evaluating…' : 'Generate recommendation'}
-                </button>
+                <div className="recommendation-actions">
+                  <div className="recommendation-source">
+                    <label htmlFor="recommendation-mode">Source</label>
+                    <select
+                      id="recommendation-mode"
+                      className="select-input"
+                      value={recommendationMode}
+                      disabled={recommendationLoading || !localServiceStatus?.providerAvailable}
+                      onChange={(event) =>
+                        setRecommendationMode(event.target.value as 'offline' | 'ai')
+                      }
+                    >
+                      <option value="offline">Offline evaluator</option>
+                      <option value="ai">Local AI explanation</option>
+                    </select>
+                  </div>
+                  <button
+                    className="primary-button generate-button"
+                    type="button"
+                    onClick={() => void generateRecommendation()}
+                    disabled={recommendationLoading}
+                  >
+                    <Icon name="spark" />{' '}
+                    {recommendationLoading ? 'Evaluating…' : 'Generate recommendation'}
+                  </button>
+                </div>
+              </div>
+              <div className="local-service-row">
+                {isLocalServiceAllowed() ? (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => void connectLocalService()}
+                    disabled={localServiceLoading}
+                  >
+                    {localServiceLoading
+                      ? 'Connecting…'
+                      : localServiceStatus
+                        ? 'Check local AI again'
+                        : 'Connect local AI'}
+                  </button>
+                ) : null}
+                <span className="local-service-status" role="status">
+                  {localServiceMessage ??
+                    (localServiceStatus?.providerAvailable
+                      ? 'Local AI ready'
+                      : isLocalServiceAllowed()
+                        ? 'Offline by default. Connecting is optional.'
+                        : 'Hosted demo stays offline; no local service is contacted.')}
+                </span>
               </div>
               {!recommendation ? (
                 <div className="recommendation-empty">
